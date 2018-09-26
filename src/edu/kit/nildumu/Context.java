@@ -5,13 +5,55 @@ import java.util.function.*;
 import java.util.logging.*;
 import java.util.stream.*;
 
+import com.google.common.collect.Iterators;
+import com.ibm.wala.shrikeBT.IBinaryOpInstruction;
+import com.ibm.wala.shrikeBT.IConditionalBranchInstruction;
+import com.ibm.wala.shrikeBT.IBinaryOpInstruction.IOperator;
+import com.ibm.wala.shrikeBT.IUnaryOpInstruction;
+import com.ibm.wala.ssa.ConstantValue;
+import com.ibm.wala.ssa.IR;
+import com.ibm.wala.ssa.ISSABasicBlock;
+import com.ibm.wala.ssa.SSAArrayLengthInstruction;
+import com.ibm.wala.ssa.SSAArrayLoadInstruction;
+import com.ibm.wala.ssa.SSAArrayStoreInstruction;
+import com.ibm.wala.ssa.SSABinaryOpInstruction;
+import com.ibm.wala.ssa.SSACheckCastInstruction;
+import com.ibm.wala.ssa.SSAComparisonInstruction;
+import com.ibm.wala.ssa.SSAConditionalBranchInstruction;
+import com.ibm.wala.ssa.SSAConversionInstruction;
+import com.ibm.wala.ssa.SSAGetCaughtExceptionInstruction;
+import com.ibm.wala.ssa.SSAGetInstruction;
+import com.ibm.wala.ssa.SSAGotoInstruction;
+import com.ibm.wala.ssa.SSAInstanceofInstruction;
+import com.ibm.wala.ssa.SSAInstruction;
+import com.ibm.wala.ssa.SSAInstruction.Visitor;
+import com.ibm.wala.ssa.SSAInvokeInstruction;
+import com.ibm.wala.ssa.SSALoadMetadataInstruction;
+import com.ibm.wala.ssa.SSAMonitorInstruction;
+import com.ibm.wala.ssa.SSANewInstruction;
+import com.ibm.wala.ssa.SSAPhiInstruction;
+import com.ibm.wala.ssa.SSAPiInstruction;
+import com.ibm.wala.ssa.SSAPutInstruction;
+import com.ibm.wala.ssa.SSAReturnInstruction;
+import com.ibm.wala.ssa.SSASwitchInstruction;
+import com.ibm.wala.ssa.SSAThrowInstruction;
+import com.ibm.wala.ssa.SSAUnaryOpInstruction;
+import com.ibm.wala.ssa.SymbolTable;
+
+import edu.kit.joana.api.sdg.SDGInstruction;
 import edu.kit.joana.ifc.sdg.graph.SDGEdge;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
 import edu.kit.joana.ifc.sdg.graph.SDGNode.Kind;
+import edu.kit.joana.ifc.sdg.graph.SDGNode.Operation;
+import edu.kit.joana.wala.core.PDGNode;
+import edu.kit.nildumu.Lattices.Value;
+import edu.kit.nildumu.MethodInvocationHandler.CallSite;
+import edu.kit.nildumu.MethodInvocationHandler.NodeBasedCallSite;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
+import edu.kit.nildumu.util.Util.Box;
 
 import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.*;
 import static edu.kit.nildumu.Lattices.*;
@@ -66,38 +108,30 @@ public class Context {
     private final DefaultMap<SDGNode, Operator> operatorPerNode = new DefaultMap<>(new IdentityHashMap<>(), new DefaultMap.Extension<SDGNode, Operator>() {
 
         @Override
-        public Operator defaultValue(Map<SDGNode, Operator> map, SDGNode key) {
-            //Operator op = key.getOperator(Context.this); // TODO
-        	if (key.getLabel().equals("return")) {
-        		return null;
-        	}
-        	Operator op = null;
-            if (op == null){
-                throw new NildumuError(String.format("No operator for %s implemented", key));
-            }
-            return op;
+        public Operator defaultValue(Map<SDGNode, Operator> map, SDGNode node) {
+          	return operatorForNodeNotCached(node);
         }
     }, FORBID_DELETIONS, FORBID_VALUE_UPDATES);
 
     public static class CallPath {
-        final List<SDGNode> path;
+        final List<CallSite> path;
 
         CallPath(){
             this(Collections.emptyList());
         }
 
-        CallPath(List<SDGNode> path) {
+        CallPath(List<CallSite> path) {
             this.path = path;
         }
 
-        public CallPath push(SDGNode callSite){
-            List<SDGNode> newPath = new ArrayList<>(path);
+        public CallPath push(CallSite callSite){
+            List<CallSite> newPath = new ArrayList<>(path);
             newPath.add(callSite);
             return new CallPath(newPath);
         }
 
         public CallPath pop(){
-            List<SDGNode> newPath = new ArrayList<>(path);
+            List<CallSite> newPath = new ArrayList<>(path);
             newPath.remove(newPath.size() - 1);
             return new CallPath(newPath);
         }
@@ -121,7 +155,7 @@ public class Context {
             return path.isEmpty();
         }
 
-        public SDGNode peek() {
+        public CallSite peek() {
             return path.get(path.size() - 1);
         }
     }
@@ -270,14 +304,6 @@ public class Context {
     }
 
     public Value nodeValue(SDGNode node){
-    	// TODO
-       /* if (node instanceof ParameterAccessNode){
-            return getVariableValue(((ParameterAccessNode) node).definition);
-        } else if (node instanceof VariableAccessNode){
-            return nodeValue(((VariableAccessNode) node).definingExpression);
-        } else if (node instanceof WrapperNode){
-            return ((WrapperNode<Value>) node).wrapped;
-        }*/
         return nodeValueState.nodeValueMap.get(node);
     }
 
@@ -300,39 +326,57 @@ public class Context {
         return operatorForNode(node).compute(this, node, arguments);
     }
 
-    @SuppressWarnings("unchecked")
-    public List<SDGNode> paramNode(SDGNode node){
-    	return Collections.emptyList();
-    }
-
-    private final Map<SDGNode, List<Integer>> lastParamVersions = new HashMap<>();
-
-    private boolean compareAndStoreParamVersion(SDGNode node){
-    	System.err.println(program.toString(node));
-        List<Integer> curVersions = paramNode(node).stream().map(nodeValueState.nodeVersionMap::get).collect(Collectors.toList());
-        boolean somethingChanged = true;
-        if (lastParamVersions.containsKey(node)){
-            somethingChanged = lastParamVersions.get(node).equals(curVersions);
-        }
-        lastParamVersions.put(node, curVersions);
-        return somethingChanged;
+    public List<Value> opArgs(SDGNode node){
+    	System.err.println(node.getLabel());
+    	SSAInstruction instr = program.getInstruction(node);
+    	if (instr == null) {
+    		return Collections.emptyList();
+    	}
+    	SymbolTable st = program.getProcSymbolTable(node);
+    	List<SDGEdge> edges = program.sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP);
+    	Box<Integer> edgeIndex = new Box<>(0); 
+    	return IntStream.range(0, instr.getNumberOfUses()).map(instr::getUse).mapToObj(i -> {
+    		if (st.isConstant(i)) {
+    			Object val = ((ConstantValue)st.getValue(i)).getValue();
+    			if (st.isNumberConstant(i)) {
+    				return vl.parse(((Number)val).intValue());
+    			}
+    			if (st.isBooleanConstant(i)) {
+    				return vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
+    			}
+    			throw new NildumuError(String.format("Unsupported constant type %s", val.getClass()));
+    		}
+    		if (st.isParameter(i)) {
+    			return getParamValue(node, i);
+    		}
+    		return nodeValue(edges.get(edgeIndex.val++).getSource());
+    	}).collect(Collectors.toList());
     }
 
     public boolean evaluate(SDGNode node){
-        log(() -> "Evaluate node " + node + " " + nodeValue(node).get(1).deps().size());
-
-        boolean paramsChanged = compareAndStoreParamVersion(node);
-        if (!paramsChanged){
-            return false;
+    	final SDGNode resNode;
+    	if (node.kind == Kind.CALL) {
+    		PDGNode pdgNode = program.getPDG(node).getReturnOut(program.getPDG(node).getNodeWithId(node.getId()));
+    		resNode = program.sdg.getNode(pdgNode.getId());
+    	} else {
+    		resNode = node;
+    	}
+    	
+    	System.err.println(" ### " +resNode.getLabel());
+        
+        log(() -> "Evaluate node " + node + " " + nodeValue(resNode).get(1).deps().size());
+        Value newValue = null;
+        if (node.kind == Kind.CALL) {
+        	newValue = evaluateCall(node);
+        } else {
+        	List<Value> args = opArgs(node);
+    		
+        	newValue = op(node, args);
         }
-
-        List<SDGNode> paramNodes = paramNode(node);
-
-        List<Value> args = paramNodes.stream().map(this::nodeValue).collect(Collectors.toList());
-        Value newValue = op(node, args);
+        
         boolean somethingChanged = false;
-        if (nodeValue(node) != vl.bot()) { // dismiss first iteration
-            Value oldValue = nodeValue(node);
+        if (nodeValue(resNode) != vl.bot()) { // dismiss first iteration
+            Value oldValue = nodeValue(resNode);
             List<Bit> newBits = new ArrayList<>();
             somethingChanged = vl.mapBits(oldValue, newValue, (a, b) -> {
                 boolean changed = false;
@@ -349,12 +393,12 @@ public class Context {
                 newValue = oldValue;
             }
             if (somethingChanged){
-                nodeValueState.nodeVersionMap.put(node, nodeValueState.nodeVersionMap.get(node) + 1);
+                nodeValueState.nodeVersionMap.put(resNode, nodeValueState.nodeVersionMap.get(resNode) + 1);
             }
         } else {
-            somethingChanged = nodeValue(node).valueEquals(vl.bot());
+            somethingChanged = nodeValue(resNode).valueEquals(vl.bot());
         }
-        nodeValue(node, newValue);
+        nodeValue(resNode, newValue);
         newValue.description(node.getLabel()).node(node);
         return somethingChanged;
     }
@@ -506,6 +550,9 @@ public class Context {
         B vt = bs.sup(v(o), v(n));
         int oldDepsCount = o.deps().size();
         o.addDependencies(d(n));
+        if (oldDepsCount == o.deps().size() && vt == v(o)){
+            return false;
+        }
         o.setVal(vt);
         return true;
     }
@@ -541,11 +588,11 @@ public class Context {
         return methodInvocationHandler;
     }
 
-    public void pushNewMethodInvocationState(SDGNode callSite, List<Value> arguments){
+    public void pushNewMethodInvocationState(CallSite callSite, List<Value> arguments){
         pushNewMethodInvocationState(callSite, arguments.stream().flatMap(Value::stream).collect(Collectors.toSet()));
     }
 
-    public void pushNewMethodInvocationState(SDGNode callSite, Set<Bit> argumentBits){
+    public void pushNewMethodInvocationState(CallSite callSite, Set<Bit> argumentBits){
         currentCallPath = currentCallPath.push(callSite);
         variableStates.push(new State());
         methodParameterBits.push(argumentBits);
@@ -608,22 +655,48 @@ public class Context {
     		return nodeValueState.nodeValueMap.get(node);
     	}
     	if (node.kind == Kind.ACTUAL_IN) {
-    		return getVariableValue(node.getLocalUseNames()[0]);
+        	for (SDGEdge.Kind kind : Arrays.asList(SDGEdge.Kind.DATA_DEP)) {
+        		List<SDGEdge> edges = program.sdg.getIncomingEdgesOfKind(node, kind);
+        		if (edges.size() > 0) {
+        			return nodeValueRec(edges.get(0).getSource());
+        		}
+        	}
     	}
-    	for (SDGEdge.Kind kind : Arrays.asList(SDGEdge.Kind.DATA_DEP)) {
-    		List<SDGEdge> edges = program.sdg.getIncomingEdgesOfKind(node, kind);
-    		if (edges.size() > 0) {
-    			return nodeValueRec(edges.get(0).getTarget());
-    		}
-    	}
-    	return vl.parse(program.getConstantInLabel(node.getLabel()));
+    	return vl.bot();
+    	/*System.err.println(node.getLabel());
+    	assert false;
+    	return vl.parse(program.getConstantInLabel(node.getLabel()));*/
+    }
+    
+    /**
+     * From the Java SE 8 vm spec:
+     * 
+     * The Java Virtual Machine uses local variables to pass parameters 
+     * on method invocation. On class method invocation, any parameters
+     * are passed in consecutive local variables starting from local 
+     * variable 0. On instance method invocation, local variable 0 is 
+     * always used to pass a reference to the object on which the 
+     * instance method is being invoked (this in the Java programming 
+     * language). Any parameters are subsequently passed in consecutive 
+     * local variables starting from local variable 1. 
+     */
+    private Value getParamValue(SDGNode base, int useId) {
+    	return getVariableValue(useId + "");
     }
     
     private void handleOutputCall(SDGNode callSite) {
 		assert isOutputCall(callSite);
 		List<SDGNode> param = program.getParamNodes(callSite);
-		Value value = nodeValueRec(param.get(0));
-		Sec<?> sec = sl.parse(program.getConstantInLabel(param.get(1).getLabel()));
+		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
+    	SymbolTable st = program.getProcSymbolTable(callSite);
+		Value value = null;
+		if (st.isParameter(instr.getUse(0))){
+			value = getParamValue(callSite, instr.getUse(0));
+		} else {
+			value = nodeValueRec(param.get(0));
+		}
+		assert st.isStringConstant(instr.getUse(1));
+		Sec<?> sec = sl.parse(st.getStringValue(instr.getUse(1)));
 		addOutputValue(sec, value);
     }
 	
@@ -631,12 +704,27 @@ public class Context {
 		return callSite.kind == Kind.CALL && program.isOutputMethodCall(callSite);
 	}
 	
+	private Value evaluateCall(SDGNode callSite) {
+		assert callSite.kind == Kind.CALL;
+		List<SDGNode> param = program.getParamNodes(callSite);
+		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
+    	SymbolTable st = program.getProcSymbolTable(callSite);
+		List<Value> args = IntStream.range(0, instr.getNumberOfUses()).mapToObj(use -> {
+			if (st.isParameter(instr.getUse(0))){
+				return getParamValue(callSite, instr.getUse(0));
+			}
+			return nodeValueRec(param.get(0));
+		}).collect(Collectors.toList());
+		return methodInvocationHandler.analyze(this, new NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
+	}
+	
 	/**
 	 * Extension of {@link Program#workList(SDGNode, Predicate)} that handles {@link CodeUI#output(int, String)} calls
 	 * @param entryNode
 	 * @param nodeConsumer
 	 */
-	public void workList(SDGNode entryNode, Predicate<SDGNode> nodeConsumer) {
+	public void workList(SDGNode entryNode, Predicate<SDGNode> nodeConsumer,
+			Predicate<SDGNode> ignore) {
 		program.workList(entryNode, n -> {
 			if (isOutputCall(n)) {
 				handleOutputCall(n);
@@ -644,16 +732,7 @@ public class Context {
 			} else {
 				return nodeConsumer.test(n);
 			}
-		});
-	}
-	
-	public void fixPointIteration(SDGNode entryNode) {
-		workList(entryNode, n -> {
-			if (n.getLabel().equals("many2many")) {
-				return false;
-			}
-			return evaluate(n);
-		});
+		}, ignore);
 	}
 	
 	public void registerLeakageGraphs() {
@@ -666,5 +745,242 @@ public class Context {
 	public void storeLeakageGraphs() {
 		registerLeakageGraphs();
 		DotRegistry.get().storeFiles();
+	}
+	
+	/**
+	 * Returns the operator for the passed node or {@code null} if the node can be ignored.
+	 * @param node
+	 * @return
+	 */
+	Operator operatorForNodeNotCached(SDGNode node) {
+       	if (node.getLabel().equals("return")) {
+    		return null;
+    	}
+       	Box<Operator> op = new Box<>(null);
+       	System.err.println(node.getLabel());
+       	//program.getProcIR(node).getPD
+       	SSAInstruction instr = program.getInstruction(node);
+       	instr.visit(new Visitor() {
+       		@Override
+       		public void visitBinaryOp(SSABinaryOpInstruction instruction) {
+       			IOperator wop = instruction.getOperator();
+       			switch ((IBinaryOpInstruction.Operator)wop) {
+				case OR:
+					op.val = Operator.OR;
+					break;
+				case ADD:
+					op.val = Operator.ADD;
+					break;
+				case AND:
+					op.val = Operator.AND;
+					break;
+				case DIV:
+					op.val = Operator.DIVIDE;
+					break;
+				case MUL:
+					op.val = Operator.MULTIPLY;
+					break;
+				case SUB:
+					op.val = new Operator() {
+						
+						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
+							return Operator.ADD.compute(c, node, Arrays.asList(Operator.ADD.compute(c, node, Arrays.asList(arguments.get(0), Operator.NOT.compute(c, node, Collections.singletonList(arguments.get(0))))), vl.parse(1)));
+						}
+						
+						@Override
+						public String toString(List<Value> arguments) {
+							return String.format("(%s - %s)", arguments.get(0), arguments.get(1));
+						}
+					};
+				case XOR:
+					op.val = Operator.XOR;
+					break;
+				default:
+					break;
+				}
+       		}
+       		
+       		@Override
+       		public void visitUnaryOp(SSAUnaryOpInstruction instruction) {
+       			switch ((IUnaryOpInstruction.Operator)instruction.getOpcode()) {
+       			case NEG:
+       				op.val = Operator.NOT;
+       			}
+       		}
+       		
+       		@Override
+       		public void visitConditionalBranch(SSAConditionalBranchInstruction instruction) {
+       			switch ((IConditionalBranchInstruction.Operator)instruction.getOperator()) {
+				case EQ:
+					op.val = Operator.EQUALS;
+					break;
+				case GE:
+					op.val = new Operator() {
+						
+						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
+							return Operator.NOT.compute(c, node, Arrays.asList(Operator.LESS.compute(c, node, Arrays.asList(arguments.get(0), arguments.get(1)))));
+						}
+						
+						@Override
+						public String toString(List<Value> arguments) {
+							return String.format("(%s >= %s)", arguments.get(0), arguments.get(1));
+						}
+					};
+					break;
+				case GT:
+					op.val = new Operator() {
+						
+						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
+							return Operator.LESS.compute(c, node, Arrays.asList(arguments.get(1), arguments.get(0)));
+						}
+						
+						@Override
+						public String toString(List<Value> arguments) {
+							return String.format("(%s > %s)", arguments.get(0), arguments.get(1));
+						}
+					};
+					break;
+				case LE:
+					op.val = op.val = new Operator() {
+						
+						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
+							return Operator.NOT.compute(c, node, Arrays.asList(Operator.LESS.compute(c, node, Arrays.asList(arguments.get(1), arguments.get(0)))));
+						}
+						
+						@Override
+						public String toString(List<Value> arguments) {
+							return String.format("(%s >= %s)", arguments.get(0), arguments.get(1));
+						}
+					};
+					break;
+				case LT:
+					op.val = Operator.LESS;
+					break;
+				case NE:
+					op.val = Operator.UNEQUALS;
+					break;
+				}
+       		}
+       		
+       		@Override
+       		public void visitPhi(SSAPhiInstruction instruction) {
+       			op.val = Operator.PHI_GENERIC;
+       		}
+       		
+       		@Override
+       		public void visitReturn(SSAReturnInstruction instruction) {
+       			op.val = Operator.RETURN;
+       		}
+       	});
+       	System.err.println(instr);
+        if (op.val == null){
+            throw new NildumuError(String.format("No operator for %s implemented", Program.toString(node)));
+        }
+        return op.val;
+	}
+	
+	public void fixPointIteration(SDGNode entryNode) {
+		new FixpointIteration(entryNode).run();
+	}
+	
+	class FixpointIteration extends Visitor {
+		
+		final SDGNode entryNode;
+		final Map<SDGNode, ISSABasicBlock> omittedBlocks = new HashMap<>();
+		boolean changed = false;
+		SDGNode node = null;
+		Set<SDGNode> openLoops = new HashSet<>();
+		
+		public FixpointIteration(SDGNode entryNode) {
+			super();
+			this.entryNode = entryNode;
+		}
+
+		public void run() {
+			workList(entryNode, n -> {
+				if (n.getLabel().equals("many2many")) {
+					return false;
+				}
+				node = n;
+				program.getInstruction(n).visit(this);
+				return changed;
+			}, n -> omittedBlocks.containsValue(program.getBlock(n)));	
+		}
+		
+		@Override
+		public void visitBinaryOp(SSABinaryOpInstruction instruction) {
+			evaluate(node);
+		}
+		
+		@Override
+		public void visitUnaryOp(SSAUnaryOpInstruction instruction) {
+			evaluate(node);
+		}
+		
+		@Override
+		public void visitConditionalBranch(SSAConditionalBranchInstruction instruction) {
+			if (isLoop()) {
+				openLoops.add(node);
+			}
+			if (evaluate(node)) {
+				Value cond = nodeValue(node);
+				Bit condBit = cond.get(1);
+                B condVal = condBit.val();
+                if (condVal == B.U && openLoops.size() > 0){
+                    weight(condBit, Context.INFTY);
+                }
+                if (condVal == B.ZERO && condVal != B.U) {
+                    omittedBlocks.put(node, program.blockForId(node, instruction.getTarget()));
+                }
+                if (condVal == B.ONE && condVal != B.U) {
+                	omittedBlocks.put(node, program.getNextBlock(node));
+               }
+			} else {
+				omittedBlocks.put(node, program.blockForId(node, instruction.getTarget()));
+            	omittedBlocks.put(node, program.getNextBlock(node));
+			}
+		}
+		
+		boolean isLoop() {
+			Set<SDGNode> alreadyVisited = new HashSet<>();
+			Stack<SDGNode> q = new Stack<>();
+			q.add(node);
+			while (!q.isEmpty()) {
+				SDGNode cur = q.pop();
+				if (cur == node) {
+					return true;
+				}
+				if (!alreadyVisited.contains(cur)) {
+					alreadyVisited.add(cur);
+					q.addAll(program.sdg.getOutgoingEdgesOfKind(cur, SDGEdge.Kind.CONTROL_FLOW).stream().map(SDGEdge::getTarget).collect(Collectors.toList()));
+				}
+			}
+			return false;
+		}
+		
+		@Override
+		public void visitPhi(SSAPhiInstruction instruction) {
+			evaluate(node);
+			program.getControlDeps(node).forEach(n -> {
+				omittedBlocks.remove(n);
+				openLoops.add(n);
+			});
+		}
+		
+		@Override
+		public void visitInvoke(SSAInvokeInstruction instruction) {
+			evaluate(node);
+		}
+   		
+   		@Override
+   		public void visitReturn(SSAReturnInstruction instruction) {
+   			evaluate(node);
+   		}
+		
+		boolean evaluate(SDGNode node) {
+			changed = Context.this.evaluate(node);
+			System.err.println(changed);
+			return changed;
+		}
 	}
 }

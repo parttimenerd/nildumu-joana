@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import edu.kit.nildumu.IOUtil;
-import edu.kit.nildumu.Lattices.B;
 import edu.kit.nildumu.Lattices.BasicSecLattice;
 import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.Program;
@@ -19,8 +18,9 @@ class SimpleTest {
 	@Test
 	@BeforeEach
 	public void init() {
-		program = new Program(IOUtil.buildAndDump(Simple.class));
+		program = TestUtil.load(Simple.class);
 	}
+	
 	@Test
 	void testTryWorkListRun() {
 		program.tryRun(program.main.entry);
@@ -34,7 +34,7 @@ class SimpleTest {
 				visitedOutput.val = true;
 			}
 			return Program.print(n);
-		});
+		}, n -> false);
 		assertAll(
 				() -> assertFalse(visitedOutput.val, "No output call site visited"),
 				() -> assertTrue(program.context.output.hasValuesForSec(BasicSecLattice.LOW),

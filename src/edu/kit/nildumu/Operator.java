@@ -5,6 +5,7 @@ import java.util.function.BiPredicate;
 import java.util.stream.*;
 
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
+import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
 
@@ -446,62 +447,6 @@ public interface Operator {
         }
     };
 
-    static final BitWiseBinaryOperatorStructured PHI = new BitWiseBinaryOperatorStructured("phi") {
-
-        @Override
-        Bit compute(Context c, Bit x, Bit y) {
-        	// TODO implement phi
-           /* if (x.val() == X){
-                return y;
-            } else if (y.val() == X){
-                return x;
-            } else if (x == y){
-                return x;
-            }
-            Parser.PhiNode phi = (Parser.PhiNode)currentNode;
-            if (phi.controlDeps.size() == 1){
-                B condVal = c.nodeValue(phi.controlDeps.get(0)).get(1).val();
-                switch (condVal){
-                    case ONE:
-                        return x;
-                    case ZERO:
-                        return y;
-                }
-            }
-            Lattices.B bitValue = computeBitValue(x, y);
-            if (bitValue.isConstant()) {
-                return bl.create(bitValue);
-            }
-            DependencySet dataDeps = computeDataDependencies(x, y, bitValue);
-            Bit r = bl.create(bitValue, dataDeps);
-            r.addDependencies(computeControlDeps(c, phi, U, null));
-            return r;*/
-        	return null;
-        }
-
-        @Override
-        public Lattices.B computeBitValue(Bit x, Bit y) {
-            return bs.sup(x.val(), y.val());
-        }
-
-        @Override
-        public DependencySet computeDataDependencies(Bit x, Bit y, Lattices.B computedBitValue) {
-            return Stream.of(x, y).filter(Bit::isUnknown).collect(DependencySet.collector());
-        }
-
-        public DependencySet computeControlDeps(Context context, SDGNode node, B computedBitValue, DependencySet computedDataDependencies) {
-            // TODO
-        	/*if (computedBitValue == B.U) {
-                return ((Parser.PhiNode) node).controlDeps.stream().map(n -> context.nodeValue(n).get(1)).collect(DependencySet.collector());
-            }*/
-            return ds.empty();
-        }
-
-        @Override
-        void checkArguments(List<Value> arguments) {
-        }
-    };
-
     static final BitWiseOperator PHI_GENERIC = new BitWiseOperatorStructured("phi") {
 
         @Override
@@ -534,10 +479,9 @@ public interface Operator {
         }
 
         public DependencySet computeControlDeps(Context context, SDGNode node, B computedBitValue, DependencySet computedDataDependencies) {
-            // TODO
-        	/*if (computedBitValue == B.U) {
-                return ((Parser.PhiNode) node).controlDeps.stream().map(n -> context.nodeValue(n).get(1)).collect(DependencySet.collector());
-            }*/
+            if (computedBitValue == B.U) {
+                return context.program.getControlDeps(currentNode).stream().map(n -> context.nodeValue(n).get(1)).collect(DependencySet.collector());
+            }
             return ds.empty();
         }
     };
@@ -569,26 +513,6 @@ public interface Operator {
         @Override
         Value compute(Context c, Value argument) {
             return new Value(argument.get(index));
-        }
-    }
-
-    public static class MethodInvocation implements Operator {
-
-        final SDGNode callSite;
-
-        public MethodInvocation(SDGNode callSite) {
-            this.callSite = callSite;
-        }
-
-        @Override
-        public Value compute(Context c, List<Value> arguments) {
-            return c.methodInvocationHandler().analyze(c, callSite, arguments);
-        }
-
-        @Override
-        public String toString(List<Value> arguments) {
-            //return String.format("%s(%s)", callSite.getPossibleTargets(), arguments.stream().map(Value::toString).collect(Collectors.joining(",")));
-        	return null; // TODO
         }
     }
 
@@ -728,6 +652,15 @@ public interface Operator {
             return createUnknownValue(first, second);
         }
     };
+    
+    static final UnaryOperator RETURN = new UnaryOperator("ret") {
+		
+		@Override
+		Value compute(Context c, Value argument) {
+			c.setReturnValue(argument);
+			return argument;
+		}
+	};
 
     default Value compute(Context c, List<Value> arguments){
         throw new NildumuError("Not implemented");

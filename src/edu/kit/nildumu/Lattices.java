@@ -70,7 +70,7 @@ public class Lattices {
 	            if (infElemen.equals(a)){
 	                return Optional.of(a);
 	            }
-	            if (equals(infElemen.equals(b))){
+	            if (equals(b)){
 	                return Optional.of(b);
 	            }
 	            return Optional.empty();
@@ -990,7 +990,6 @@ public class Lattices {
 	        }
 
 	        public void addDependency(Bit newDependency){
-	            //assert isUnknown(); //TODO: fix
 	            if (!isUnknown()){
 	                return;
 	            }
@@ -1174,7 +1173,7 @@ public class Lattices {
 	                bit.value(this);
 	            }
 	        }
-
+	        
 	        public Value(Bit... bits) {
 	            this(Arrays.asList(bits));
 	        }

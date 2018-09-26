@@ -603,12 +603,12 @@ public class MinCut {
                 graph.setEdgeWeight(graph.addEdge(bitToNodes.get(bit).second, sink), infty * infty);
             }
             PushRelabelMaximumFlow<Vertex, DefaultWeightedEdge> pp = new PushRelabelMaximumFlow<Vertex, DefaultWeightedEdge>(graph);
-            MaximumFlow<Vertex, DefaultWeightedEdge> mf = pp.buildMaximumFlow(source, sink);
             try {
 				new org.jgrapht.ext.DOTExporter<Vertex, DefaultWeightedEdge>().export(new FileWriter("out/bla.dot"), graph);
 			} catch (IOException e1) {
 				e1.printStackTrace();
 			}
+            MaximumFlow<Vertex, DefaultWeightedEdge> mf = new EdmondsKarpMaximumFlow<>(graph).buildMaximumFlow(source, sink);
             double maxFlow = mf.getValue();
             Queue<Vertex> q = new ArrayDeque<>();
             q.offer(source);

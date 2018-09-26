@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -21,10 +22,18 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Iterators;
+import com.ibm.wala.ipa.callgraph.CGNode;
+import com.ibm.wala.ssa.IR;
+import com.ibm.wala.ssa.ISSABasicBlock;
+import com.ibm.wala.ssa.SSAInstruction;
+import com.ibm.wala.ssa.SSAInvokeInstruction;
+import com.ibm.wala.ssa.SymbolTable;
 
 import edu.kit.joana.api.IFCAnalysis;
 import edu.kit.joana.api.annotations.AnnotationType;
 import edu.kit.joana.api.sdg.SDGFormalParameter;
+import edu.kit.joana.api.sdg.SDGInstruction;
 import edu.kit.joana.api.sdg.SDGMethod;
 import edu.kit.joana.api.sdg.SDGProgram;
 import edu.kit.joana.api.sdg.SDGProgramPartVisitor;
@@ -38,6 +47,10 @@ import edu.kit.joana.ifc.sdg.util.JavaMethodSignature;
 import edu.kit.joana.ifc.sdg.util.JavaType;
 import edu.kit.joana.ui.annotations.Source;
 import edu.kit.joana.util.Pair;
+import edu.kit.joana.wala.core.PDG;
+import edu.kit.joana.wala.core.PDGNode;
+import edu.kit.joana.wala.core.SDGBuildArtifacts;
+import edu.kit.joana.wala.core.SDGBuilder;
 import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.ui.CodeUI;
@@ -82,6 +95,14 @@ public class Program {
 		public String toBCString() {
 			return method.getSignature().toBCString();
 		}
+		
+		public boolean hasReturnValue() {
+			return method.getSignature().getReturnType() != null && !method.getSignature().getReturnType().toHRString().equals("void");
+		}
+		
+		public List<SDGFormalParameter> getParameters(){
+			return method.getParameters().stream().sorted(Comparator.comparingInt(SDGFormalParameter::getIndex)).collect(Collectors.toList());
+		}
 	}
 
 	public static class MainMethod extends Method {
@@ -105,6 +126,8 @@ public class Program {
 
 	public final IFCAnalysis ana;
 	
+	public final SDGBuilder builder;
+	
 	public final SDG sdg;
 	
 	public final MainMethod main;
@@ -119,9 +142,10 @@ public class Program {
 	
 	public final Context context;
 	
-	public Program(IFCAnalysis ana) {
+	public Program(BuildResult build) {
 		super();
-		this.ana = ana;
+		this.ana = build.analysis;
+		this.builder = build.builder;
 		this.entryToMethod = HashBiMap.create(ana.getProgram().getSDG().sortByProcedures().keySet().stream().collect(Collectors.toMap(n -> n, 
 				n -> new Method(
 						ana.getProgram().getAllMethods().stream()
@@ -146,22 +170,10 @@ public class Program {
 	private void initContext(){
 		java.lang.reflect.Method mainMethod = Arrays.asList(getMainClass().getMethods()).stream()
 				.filter(m -> m.getName().equals(MAIN_METHOD_NAME)).findFirst().get();
-		main.method.getParameters().stream()
-			.sorted(Comparator.comparingInt(SDGFormalParameter::getIndex)).forEach(p -> {
+		main.getParameters().forEach(p -> {
 				Pair<Source, String> ap = Util.get(ana.getJavaSourceAnnotations().getFirst().get(p));
 				Parameter param = mainMethod.getParameters()[p.getIndex() - 1];
-				int bitWidth = intWidth;
-				switch (p.getType().toHRString()) {
-				case "boolean":
-					bitWidth = 1;
-					break;
-				case "byte":
-				case "char":
-					bitWidth = 8;
-					break;
-				case "short":
-					bitWidth = 16;
-				}
+				int bitWidth = bitWidthForType(p.getType());
 				Value val;
 				if (param.isAnnotationPresent(edu.kit.nildumu.ui.Value.class)) {
 					val = vl.parse(param.getAnnotation(edu.kit.nildumu.ui.Value.class).value());
@@ -169,14 +181,29 @@ public class Program {
 					val = createUnknownValue(bitWidth);
 				}
 				Sec<?> sec = context.sl.parse(ap.getFirst().level());
-				String name = sdg.getOutgoingEdgesOfKind(main.entry, SDGEdge.Kind.PARAMETER_STRUCTURE).stream()
-						.map(SDGEdge::getTarget)
-						.filter(n -> n.getLabel().startsWith(String.format("param %s ", p.getIndex())))
-						.findFirst().get()
-						.getLocalDefNames()[0];
-				context.setVariableValue(name, val);
+				context.setVariableValue(p.getIndex() + "", val);
 				context.addInputValue(sec, val);
 			});
+	}
+	
+	public Value createUnknownValue(JavaType type) {
+		return createUnknownValue(bitWidthForType(type));
+	}
+	
+	public int bitWidthForType(JavaType type) {
+		int bitWidth = intWidth;
+		switch (type.toHRString()) {
+		case "boolean":
+			bitWidth = 1;
+			break;
+		case "byte":
+		case "char":
+			bitWidth = 8;
+			break;
+		case "short":
+			bitWidth = 16;
+		}
+		return bitWidth;
 	}
 	
 	private void check() {
@@ -246,10 +273,12 @@ public class Program {
 		workList(entryNode, n -> {
 			System.out.println(n.getLabel());
 			return false;
-		});
+		}, n -> false);
 	}
 	
-	public void workList(SDGNode entryNode, Predicate<SDGNode> nodeConsumer) {
+	public void workList(SDGNode entryNode, 
+			Predicate<SDGNode> nodeConsumer,
+			Predicate<SDGNode> ignore) {
 		Predicate<SDGNode> filter = n -> Arrays.asList(Kind.NORMAL, Kind.EXPRESSION, Kind.PREDICATE, Kind.CALL).contains(n.kind)
 				&& !n.getLabel().endsWith("_exception_") && !Arrays.asList("CALL_RET").contains(n.getLabel());
 		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
@@ -258,6 +287,9 @@ public class Program {
 		topOrder(entryNode).stream().filter((Predicate<? super SDGNode>) filter).forEach(q::add);
 		while (!q.isEmpty()) {
 			SDGNode cur = q.poll();
+			if (ignore.test(cur)) {
+				continue;
+			}
 			if (nodeConsumer.test(cur)) {
 				getSDG().outgoingEdgesOf(cur).stream()
 					.map(e -> e.getTarget()).filter((Predicate<? super SDGNode>) filter)
@@ -310,7 +342,10 @@ public class Program {
 	
 	public Method getMethodForCallSite(SDGNode callSite) {
 		assert callSite.kind == Kind.CALL;
-		return method(callSite.getUnresolvedCallTarget()); 
+		if (callSite.getUnresolvedCallTarget() != null) {
+			return method(callSite.getUnresolvedCallTarget()); 
+		}
+		return method(((SSAInvokeInstruction)getInstruction(callSite)).getDeclaredTarget().getSignature());
 	}
 	
 	public boolean isOutputMethodCall(SDGNode callSite) {
@@ -334,11 +369,14 @@ public class Program {
 	}
 	
 	public java.lang.reflect.Method getJavaMethodCallTarget(SDGNode callSite){
-		return getJavaMethodForSignature(parseSignature(callSite.getUnresolvedCallTarget()));
+		if (callSite.getUnresolvedCallTarget() != null) {
+			return getJavaMethodForSignature(parseSignature(callSite.getUnresolvedCallTarget()));
+		}
+		return getJavaMethodForSignature(parseSignature(((SSAInvokeInstruction)getInstruction(callSite)).getDeclaredTarget().getSignature()));
 	}
 	
 	public void tryWorkListRun(SDGNode entryNode) {
-		workList(entryNode, Program::print); 
+		workList(entryNode, Program::print, n -> false); 
 	}
 	
 	public static String toString(SDGNode node) {
@@ -355,7 +393,6 @@ public class Program {
 	
 	public List<SDGNode> getParamNodes(SDGNode callSite){
 		assert callSite.kind == Kind.CALL;
-		//return sdg.getAllActualInsForCallSiteOf(callSite).stream().map(n -> sdg.getOutgoingEdgesOfKind(n, SDGEdge.Kind.PARAMETER_IN).get(0).getTarget()).collect(Collectors.toList());
 		return new ArrayList<>(sdg.getAllActualInsForCallSiteOf(callSite));
 	}
 	
@@ -375,5 +412,73 @@ public class Program {
 	
 	public void fixPointIteration() {
 		context.fixPointIteration(main.entry);
+	}
+	
+	public PDG getPDG(SDGNode node) {
+		return builder.getPDGforMethod(getCGNode(node));
+	}
+	
+	public SSAInstruction getInstruction(SDGNode node) {
+		return getPDG(node).getInstruction(getPDGNode(node));
+	}
+	
+	public PDGNode getPDGNode(SDGNode node) {
+		return getPDG(node).getNodeWithId(node.getId());
+	}
+	
+	public SSAInstruction getNextInstruction(SDGNode node) {
+		SSAInstruction instr = getInstruction(node);
+		return  Iterators.filter(getProcIR(node).iterateAllInstructions(), i -> i.iindex > instr.iindex).next();
+	}
+	
+	public ISSABasicBlock getNextBlock(SDGNode node) {
+		return getProcIR(node).getBasicBlockForInstruction(getNextInstruction(node));
+	}
+	
+	/**
+	 * 
+	 * @param node used to get the method
+	 * @return
+	 */
+	public IR getProcIR(SDGNode node) {
+		return getCGNode(node).getIR();
+	}
+	
+	public CGNode getCGNode(SDGNode node) {
+		return builder.getAllPDGs().stream().filter(n -> n.getId() == node.getProc()).map(n -> n.cgNode).findFirst().get();
+	}
+	
+	public ISSABasicBlock getBlock(SDGNode node) {
+		return getPDG(node).cgNode.getIR().getBasicBlockForInstruction(getInstruction(node));
+	}
+	
+	public ISSABasicBlock blockForId(SDGNode base, int id) {
+		return Iterators.filter(getProcIR(base).getBlocks(), b -> b.getNumber() == id).next();
+	}
+	
+	/**
+	 * 
+	 * @param node used to get the method
+	 * @return
+	 */
+	public SymbolTable getProcSymbolTable(SDGNode node) {
+		return getProcIR(node).getSymbolTable();
+	}
+	
+	public List<SDGNode> getControlDeps(SDGNode node) {
+		return sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.CONTROL_DEP_COND).stream().map(SDGEdge::getSource).filter(n -> n.kind == Kind.PREDICATE).collect(Collectors.toList());
+	}
+	
+	public Dominators<Method> getMethodDominators(){
+		return new Dominators<>(main, m -> {
+			Set<Method> called = new HashSet<>();
+			builder.getNonPrunedWalaCallGraph().getSuccNodes(getCGNode(m.entry)).forEachRemaining(c -> called.add(entryToMethod.get(sdg.getNode(builder.getPDGforMethod(c).entry.getId()))));
+			return called;
+		});
+	}
+	
+	public Program setMethodInvocationHandler(String props) {
+		context.forceMethodInvocationHandler(MethodInvocationHandler.parseAndSetup(this, props));
+		return this;
 	}
 }

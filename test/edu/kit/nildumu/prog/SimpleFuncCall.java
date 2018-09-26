@@ -3,23 +3,26 @@ package edu.kit.nildumu.prog;
 import edu.kit.joana.ui.annotations.EntryPoint;
 import edu.kit.joana.ui.annotations.Level;
 import edu.kit.joana.ui.annotations.Source;
+import edu.kit.nildumu.ui.Config;
+
 import static edu.kit.nildumu.ui.CodeUI.*;
 
 /**
- * Just the most rudimentary program:
- * <code>
- * h input int h  = 0bu;
- * l output int o = h;
- * </code>
+ * Extends Simple with a loop
  */
-public class Simple {
+@Config(intWidth=1)
+public class SimpleFuncCall {
 	
 	public static void main(String[] args) {
-		program(1);
+		program(10);
 	}
 	
 	@EntryPoint
 	public static void program(@Source(level=Level.HIGH) int h) {
-		output(h, "l");
+		output(run(h, h | 0) | 0, "l");
+	}
+	
+	public static int run(int a, int b) {
+		return a | b;
 	}
 }

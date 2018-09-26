@@ -4,19 +4,25 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
 import java.util.function.*;
-import java.util.stream.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import guru.nidi.graphviz.engine.*;
 import guru.nidi.graphviz.model.Graph;
 import edu.kit.joana.api.sdg.SDGMethod;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
+import edu.kit.joana.ifc.sdg.graph.SDGNode.Operation;
 import edu.kit.joana.ifc.sdg.graph.slicer.graph.CallGraph;
+import edu.kit.joana.util.SourceLocation;
 import edu.kit.joana.wala.core.PDGNode.Kind;
 import edu.kit.joana.wala.summary.GraphUtil;
+import edu.kit.nildumu.Dominators.Node;
 import edu.kit.nildumu.Program.Method;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
+import edu.kit.nildumu.util.Util.Box;
 
 import static edu.kit. nildumu.Context.*;
 import static edu.kit.nildumu.Lattices.B.U;
@@ -158,6 +164,12 @@ public abstract class MethodInvocationHandler {
             throw new MethodInvocationHandlerInitializationError(String.format("parsing \"%s\": %s", props, error.getMessage()));
         }
     }
+    
+    public static MethodInvocationHandler parseAndSetup(Program program, String props){
+    	MethodInvocationHandler handler = parse(props);
+    	handler.setup(program);
+    	return handler;
+    }
 
     public static List<String> getExamplePropLines(){
         return Collections.unmodifiableList(examplePropLines);
@@ -219,6 +231,34 @@ public abstract class MethodInvocationHandler {
         }
     }
 
+    public static class CallSite {
+    	final Method method;
+
+		public CallSite(Method method) {
+			this.method = method;
+		}
+    }
+    
+    public static class NodeBasedCallSite extends CallSite {
+
+    	final SDGNode callSite;
+    	
+		public NodeBasedCallSite(Method method, SDGNode callSite) {
+			super(method);
+			this.callSite = callSite;
+		}
+    	
+		@Override
+		public int hashCode() {
+			return callSite.hashCode();
+		}
+		
+		@Override
+		public boolean equals(Object obj) {
+			return obj instanceof NodeBasedCallSite && ((NodeBasedCallSite)obj).callSite.equals(callSite);
+		}
+    }
+    
     /**
      * A call string based handler that just inlines a function.
      * If a function was inlined in the current call path more than a defined number of times,
@@ -246,23 +286,21 @@ public abstract class MethodInvocationHandler {
         }
 
         @Override
-        public Value analyze(Context c, SDGNode callSite, List<Value> arguments) {
-            /*MethodNode method = callSite.definition;
+        public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
+            Method method = callSite.method;
             if (methodCallCounter.get(method) < maxRec) {
                 methodCallCounter.put(method, methodCallCounter.get(method) + 1);
                 c.pushNewMethodInvocationState(callSite, arguments);
                 for (int i = 0; i < arguments.size(); i++) {
-                    c.setVariableValue(method.parameters.get(i).definition, arguments.get(i));
+                    c.setVariableValue(i + "", arguments.get(i));
                 }
-                Processor.process(c, method.body);
+                c.fixPointIteration(method.entry);
                 Value ret = c.getReturnValue();
                 c.popMethodInvocationState();
                 methodCallCounter.put(method, methodCallCounter.get(method) - 1);
                 return ret;
             }
-            return botHandler.analyze(c, callSite, arguments);*/
-        	//program.getSDG().getOutgoingEdgesOfKind(callSite, edu.kit.joana.ifc.sdg.graph.SDGEdge.Kind.)
-        	return null; // TODO
+            return botHandler.analyze(c, callSite, arguments);
         }
     }
 
@@ -464,9 +502,11 @@ public abstract class MethodInvocationHandler {
 
         final int callStringMaxRec;
 
-        Map<SDGNode, BitGraph> methodGraphs;
+        Map<Method, BitGraph> methodGraphs;
 
-        CallGraph callGraph;
+        Dominators<Method> callGraph;
+        
+        Map<Method, CallSite> callSites;
 
         public SummaryHandler(int maxIterations, Mode mode, MethodInvocationHandler botHandler, Path dotFolder, Reduction reductionMode, int callStringMaxRec) {
             this.maxIterations = maxIterations;
@@ -481,10 +521,14 @@ public abstract class MethodInvocationHandler {
         @Override
         public void setup(Program program) {
             Mode _mode = mode;
-            callGraph = GraphUtil.buildCallGraph(program.getSDG());
+            callGraph = program.getMethodDominators();
+            callSites = new DefaultMap<Method, CallSite>((map, m) -> {
+            	return new CallSite(m);
+            });
             if (_mode == Mode.AUTO){
                 _mode = Mode.INDUCTION;
             }
+            
            /* if (callGraph.containsRecursion()){
                 if (_mode == Mode.AUTO){
                     _mode = Mode.COINDUCTION;
@@ -494,23 +538,19 @@ public abstract class MethodInvocationHandler {
                   //  throw new MethodInvocationHandlerInitializationError("Induction cannot be used for programs with reduction");
                 }
             }*/
+            DotRegistry.get().storeFiles();
             Mode usedMode = _mode;
-          /*  Context c = program.context;
-            Map<MethodNode, MethodInvocationNode> callSites = new DefaultMap<>((map, method) -> {
-                MethodInvocationNode callSite = new MethodInvocationNode(method.location, method.name, null);
-                callSite.definition = method;
-                return callSite;
-            });
-            Map<CallNode, BitGraph> state = new HashMap<>();
-            MethodInvocationHandler handler = createHandler(m -> state.get(callGraph.callNode(m)));
-            Util.Box<Integer> iteration = new Util.Box<>(0);
-            methodGraphs = callGraph.worklist((node, s) -> {
-                if (node.isMainNode || iteration.val > maxIterations){
+            Context c = program.context;
+            Map<Node<Method>, BitGraph> state = new HashMap<>();
+            MethodInvocationHandler handler = createHandler(m -> state.get(callGraph.elemToNode.get(m)));
+            Box<Integer> iteration = new Box<>(0);
+            callGraph.<BitGraph>worklist((node, s) -> {
+                if (node.isEntryNode || iteration.val > maxIterations){
                     return s.get(node);
                 }
                 iteration.val += 1;
-                BitGraph graph = methodIteration(program.context, callSites.get(node.method), handler, s.get(node).parameters);
-                String name = String.format("%3d %s", iteration.val, node.method.name);
+                BitGraph graph = methodIteration(program.context, node.elem, handler, s.get(node).parameters);
+                String name = String.format("%3d %s", iteration.val, node.elem.toBCString());
                 if (dotFolder != null){
                     graph.writeDotGraph(dotFolder, name, true);
                 }
@@ -524,8 +564,8 @@ public abstract class MethodInvocationHandler {
                         () -> () -> reducedGraph.createDotGraph("", false));
                 return reducedGraph;
             }, node ->  {
-                BitGraph graph = bot(program, node.method, callSites, usedMode);
-                String name = String.format("%3d %s", iteration.val, node.method.name);
+                BitGraph graph = bot(program, node.elem, usedMode);
+                String name = String.format("%3d %s", iteration.val, node.elem.toBCString());
                 if (dotFolder != null){
                     graph.writeDotGraph(dotFolder, name, false);
                 }
@@ -533,52 +573,45 @@ public abstract class MethodInvocationHandler {
                         () -> () -> graph.createDotGraph("", false));
                 return graph;
             }
-            , node -> node.getCallers().stream().filter(n -> !n.isMainNode).collect(Collectors.toSet()),
-            state).entrySet().stream().collect(Collectors.toMap(e -> e.getKey().method, Map.Entry::getValue));*/
-            // TODO
+            , node -> node.getIns().stream().filter(n -> !n.isEntryNode).collect(Collectors.toSet()),
+            state);
+            methodGraphs = state.entrySet().stream().collect(Collectors.toMap(e -> e.getKey().elem, Map.Entry::getValue));
         }
 
-        BitGraph bot(Program program, SDGMethod method, Map<SDGMethod, SDGNode> callSites, Mode usedMode){
-            /*List<Value> parameters = generateParameters(program, method);
+        BitGraph bot(Program program, Method method, Mode usedMode){
+            List<Value> parameters = generateParameters(program, method);
             if (usedMode == Mode.COINDUCTION) {
                 Value returnValue = botHandler.analyze(program.context, callSites.get(method), parameters);
                 return new BitGraph(program.context, parameters, returnValue);
             }
-            return new BitGraph(program.context, parameters, createUnknownValue(program));*/
-        	return null; // TODO
+            return new BitGraph(program.context, parameters, program.createUnknownValue(method.method.getSignature().getReturnType()));
         }
 
         List<Value> generateParameters(Program program, Method method){
-            /*return method.parameters.parameterNodes.stream().map(p ->
-                createUnknownValue(program)
-            ).collect(Collectors.toList());*/
-        	return null; // TODO
+            return method.getParameters().stream().map(p ->
+                program.createUnknownValue(p.getType())
+            ).collect(Collectors.toList());
         }
 
-        /*Value createUnknownValue(Program program){
-            return IntStream.range(0, program.context.maxBitWidth).mapToObj(i -> bl.create(U)).collect(Value.collector());
-        }*/
-
-        BitGraph methodIteration(Context c, SDGNode callSite, MethodInvocationHandler handler, List<Value> parameters){
-           /* c.resetNodeValueStates();
-            c.pushNewMethodInvocationState(callSite, parameters.stream().flatMap(Value::stream).collect(Collectors.toSet()));
+        BitGraph methodIteration(Context c, Method method, MethodInvocationHandler handler, List<Value> parameters){
+            c.resetNodeValueStates();
+            c.pushNewMethodInvocationState(callSites.get(method), parameters.stream().flatMap(Value::stream).collect(Collectors.toSet()));
             for (int i = 0; i < parameters.size(); i++) {
-                c.setVariableValue(callSite.definition.parameters.get(i).definition, parameters.get(i));
+                c.setVariableValue(i + "", parameters.get(i));
             }
             c.forceMethodInvocationHandler(handler);
-            //Processor.process(c, callSite.definition.body); // TODO
+            c.fixPointIteration(method.entry);
             Value ret = c.getReturnValue();
             c.popMethodInvocationState();
-            return new BitGraph(c, parameters, ret);*/
-        	return null;
+            c.forceMethodInvocationHandler(this);
+            return new BitGraph(c, parameters, ret);
         }
 
         MethodInvocationHandler createHandler(Function<Method, BitGraph> curVersion){
             MethodInvocationHandler handler = new MethodInvocationHandler() {
                 @Override
-                public Value analyze(Context c, SDGNode callSite, List<Value> arguments) {
-                    //return curVersion.apply(callSite).applyToArgs(c, arguments);
-                	return null; // TODO
+                public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
+                    return curVersion.apply(callSite.method).applyToArgs(c, arguments);
                 }
             };
             if (callStringMaxRec > 0){
@@ -637,21 +670,20 @@ public abstract class MethodInvocationHandler {
         }
 
         @Override
-        public Value analyze(Context c, SDGNode callSite, List<Value> arguments) {
-             return methodGraphs.get(callSite).applyToArgs(c, arguments);
+        public Value analyze(Context c, CallSite callSite, List<Value> arguments) { 
+        	return methodGraphs.get(callSite.method).applyToArgs(c, arguments);
         }
     }
 
     static {
         register("basic", s -> {}, ps -> new MethodInvocationHandler(){
             @Override
-            public Value analyze(Context c, SDGNode callSite, List<Value> arguments) {
-                /*if (arguments.isEmpty() || !callSite.definition.hasReturnValue()){
+            public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
+                if (arguments.isEmpty() || !callSite.method.hasReturnValue()){
                     return vl.bot();
                 }
                 DependencySet set = arguments.stream().flatMap(Value::stream).collect(DependencySet.collector());
-                return IntStream.range(0, arguments.stream().mapToInt(Value::size).max().getAsInt()).mapToObj(i -> bl.create(U, set)).collect(Value.collector());*/
-            	return null; // TODO
+                return IntStream.range(0, arguments.stream().mapToInt(Value::size).max().getAsInt()).mapToObj(i -> bl.create(U, set)).collect(Value.collector());
             }
         });
         examplePropLines.add("handler=basic");
@@ -689,5 +721,5 @@ public abstract class MethodInvocationHandler {
     public void setup(Program program){
     }
 
-    public abstract Lattices.Value analyze(Context c, SDGNode callSite, List<Value> arguments);
+    public abstract Lattices.Value analyze(Context c, CallSite callSite, List<Value> arguments);
 }

@@ -6,6 +6,8 @@ import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collectors;
 
+import com.google.common.html.HtmlEscapers;
+
 import edu.kit.nildumu.util.DefaultMap;
 import guru.nidi.graphviz.attribute.*;
 import guru.nidi.graphviz.engine.*;
@@ -194,7 +196,7 @@ public class DotRegistry {
                 parts.add("inf");
             }
             parts.add(b.uniqueId());
-            parts.add(b.toString().replace("<", "&lt;"));
+            parts.add(HtmlEscapers.htmlEscaper().escape(b.toString()));
             return Records.of((String[])parts.toArray(new String[0]));
         };
         Map<Bit, MutableNode> nodes = new DefaultMap<>((map, b) -> {
