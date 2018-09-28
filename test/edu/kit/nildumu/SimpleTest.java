@@ -1,14 +1,14 @@
 package edu.kit.nildumu;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import edu.kit.nildumu.IOUtil;
 import edu.kit.nildumu.Lattices.BasicSecLattice;
 import edu.kit.nildumu.Lattices.Bit;
-import edu.kit.nildumu.Program;
 import edu.kit.nildumu.prog.Simple;
 import edu.kit.nildumu.util.Util.Box;
 

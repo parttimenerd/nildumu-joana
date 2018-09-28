@@ -7,14 +7,10 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.PrintStream;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.Properties;
 import java.util.stream.Stream;
 
@@ -30,40 +26,37 @@ import edu.kit.joana.api.sdg.ConstructionNotifier;
 import edu.kit.joana.api.sdg.SDGBuildPreparation;
 import edu.kit.joana.api.sdg.SDGConfig;
 import edu.kit.joana.api.sdg.SDGProgram;
-import edu.kit.joana.api.test.util.ApiTestException;
-import edu.kit.joana.api.test.util.BuildSDG;
-import edu.kit.joana.api.test.util.DumpTestSDG;
 import edu.kit.joana.api.test.util.JoanaPath;
 import edu.kit.joana.ifc.sdg.graph.SDG;
 import edu.kit.joana.ifc.sdg.graph.SDGSerializer;
 import edu.kit.joana.ifc.sdg.graph.slicer.graph.threads.MHPAnalysis;
-import edu.kit.joana.ifc.sdg.lattice.IStaticLattice;
 import edu.kit.joana.ifc.sdg.mhpoptimization.CSDGPreprocessor;
 import edu.kit.joana.ifc.sdg.mhpoptimization.MHPType;
 import edu.kit.joana.ifc.sdg.mhpoptimization.PruneInterferences;
 import edu.kit.joana.ifc.sdg.util.JavaMethodSignature;
-import edu.kit.joana.ui.annotations.EntryPoint;
 import edu.kit.joana.util.Stubs;
 import edu.kit.joana.util.io.IOFactory;
 import edu.kit.joana.wala.core.NullProgressMonitor;
-import edu.kit.joana.wala.core.SDGBuildArtifacts;
 import edu.kit.joana.wala.core.SDGBuilder;
 import edu.kit.joana.wala.core.SDGBuilder.ExceptionAnalysis;
 import edu.kit.joana.wala.core.SDGBuilder.FieldPropagation;
 import edu.kit.joana.wala.core.SDGBuilder.PointsToPrecision;
-import edu.kit.nildumu.ui.*;
 import edu.kit.nildumu.util.Pair;
 
 /**
- * This class provides utility methods. Heavily based on {@link JoanaPath}, {@link SDGBuilder} and
+ * Fluent API for creating SDGConfigs and for loading SDGPrograms
+ * 
+ * Based on {@link JoanaPath}, {@link SDGBuilder} and
  * {@link SDGProgram} (code from these classes is copied almost directly)
+ * 
+ * Contract: entry(…) → build(…) → [dump(…)] → analyze() → [dumpDotGraphs()]
  */
-public class IOUtil {
-	
+public class Builder {
+
 	public static final String PROPERTIES_FILE = "classpaths.properties";
 	public static final String TEST_DATA_CLASSPATH;
 	public static final String TEST_DATA_GRAPHS;
-	
+
 	static {
 		TEST_DATA_CLASSPATH = loadProperty("joana.api.testdata.classpath", "bin");
 		TEST_DATA_GRAPHS = loadProperty("joana.api.testdata.graphs", "graphs");
@@ -73,10 +66,10 @@ public class IOUtil {
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
-		});
+		}); 
 	}
-	
-	static String loadProperty(String key, String defaultValue) {
+
+	private static String loadProperty(String key, String defaultValue) {
 		Properties p = new Properties();
 		try {
 			p.load(new FileInputStream(new File(PROPERTIES_FILE)));
@@ -88,30 +81,7 @@ public class IOUtil {
 		}
 		return defaultValue;
 	}
-	
-	public static void saveSDGProgram(SDG sdg, String name) throws FileNotFoundException {
-		SDGSerializer.toPDGFormat(sdg, new BufferedOutputStream(new FileOutputStream(TEST_DATA_GRAPHS + "/" + name)));
-	}
-	
-	public static void saveSDGProgram(SDG sdg, Path path) throws FileNotFoundException {
-		SDGSerializer.toPDGFormat(sdg, new BufferedOutputStream(new FileOutputStream(path.toFile())));
-	}
 
-	public static <T> Method getEntryMethod(Class<T> clazz) {
-		return Arrays.stream(clazz.getMethods())
-				.filter(m -> m.getAnnotationsByType(EntryPoint.class).length > 0 && 
-						Modifier.isStatic(m.getModifiers())).findFirst().get();
-	}
-	
-	public static void dump(SDG sdg, String name) {
-		try {
-			DumpTestSDG.dumpSDG(sdg, name + ".pdg");
-			DumpTestSDG.dumpGraphML(sdg, name);
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		}
-	}
-	
 	/**
 	 * Modified version of {@link SDGProgram#createSDGProgram(String, String, Stubs, boolean, MHPType, PrintStream, IProgressMonitor)}
 	 */
@@ -131,14 +101,14 @@ public class IOUtil {
 		if (config.computeInterferences()) {
 			CSDGPreprocessor.preprocessSDG(sdg);
 		}
-		
+
 		final MHPAnalysis mhpAnalysis = config.getMhpType().getMhpAnalysisConstructor().apply(sdg);
 		assert (mhpAnalysis == null) == (config.getMhpType() == MHPType.NONE);
-		
+
 		if (config.computeInterferences()) {
 			PruneInterferences.pruneInterferences(sdg, mhpAnalysis);
 		}
-		
+
 		if (notifier != null) {
 			notifier.sdgFinished();
 			notifier.numberOfCGNodes(buildArtifacts.getNonPrunedWalaCallGraph().getNumberOfNodes(), buildArtifacts.getWalaCallGraph().getNumberOfNodes());
@@ -151,62 +121,123 @@ public class IOUtil {
 			if (notifier != null) {
 				notifier.stripControlDepsFinished();
 			}
-			
+
 		}
 		final SDGProgram ret = new SDGProgram(sdg, mhpAnalysis);
-		
+
 		if (config.isSkipSDGProgramPart()) {
 			return new Pair<>(buildArtifacts, ret);
 		}
-		
-		
+
+
 		final IClassHierarchy ch  = buildArtifacts.getClassHierarchy();
 		final CallGraph callGraph = buildArtifacts.getWalaCallGraph(); 
 		ret.fillWithAnnotations(ch, SDGProgram.findClassesRelevantForAnnotation(ch, callGraph));
 		return new Pair<>(buildArtifacts, ret);
 	}
+
+
+	private SDGConfig config = new SDGConfig(TEST_DATA_CLASSPATH, true, null, Stubs.JRE_15,
+			ExceptionAnalysis.IGNORE_ALL, FieldPropagation.OBJ_GRAPH, PointsToPrecision.TYPE_BASED, false, // no
+			false, // no interference
+			MHPType.NONE);
+
+	private Path dumpDir = Paths.get(TEST_DATA_GRAPHS);
+
+	private BuildResult res = null;
+
+	private String className;
+
+	private boolean dumpAfterBuild = false;
+	
+	private String methodInvocationHandler = "basic";
 	
 	/**
-	 * Creates an analysis object for the passed class using the first method annotated with {@link EntryPoint} as its
-	 * entry point
+	 * Set the entry class
 	 */
-	public static <T> BuildResult build(Class<T> clazz) throws ClassHierarchyException, IOException, UnsoundGraphException, CancelException {
-		SDGConfig config = new SDGConfig(TEST_DATA_CLASSPATH, true, JavaMethodSignature.mainMethodOfClass(clazz.getName()).toBCString(), Stubs.JRE_15,
-				ExceptionAnalysis.IGNORE_ALL, FieldPropagation.OBJ_GRAPH, PointsToPrecision.TYPE_BASED, false, // no
-				false, // no interference
-				MHPType.NONE);
+	public Builder entry(String className) {
+		config.setEntryMethod(JavaMethodSignature.mainMethodOfClass(className).toBCString());
+		this.className = className;
+		return this;
+	}
+
+	public Builder entry(Class<?> clazz) {
+		return entry(clazz.getName());
+	}
+
+	public Builder classpath(String classpath) {
+		config.setClassPath(classpath);
+		return this;
+	}
+
+	/**
+	 * Sets the directory where the PDGs and other graphs are dumped via {@code dump()}
+	 */
+	public Builder dumpDir(String dirName) {
+		this.dumpDir = Paths.get(dirName);
+		DotRegistry.TMP_DIR = dirName;
+		return this;
+	}
+
+	public BuildResult build() throws ClassHierarchyException, UnsoundGraphException, CancelException, IOException {
 		Pair<SDGBuilder, SDGProgram> pair = createSDGProgram(config);
-		return new BuildResult(pair.first, new IFCAnalysis(pair.second));
+		IFCAnalysis ana = new IFCAnalysis(pair.second);
+		ana.addAllJavaSourceAnnotations();
+		res = new BuildResult(pair.first, ana);
+		if (dumpAfterBuild) {
+			dump();
+		}
+		return res;
 	}
 
-	public static <T> BuildResult buildAndUseJavaAnnotations(Class<T> clazz)
-				throws ApiTestException, ClassHierarchyException, IOException, UnsoundGraphException, CancelException {
-			BuildResult res = build(clazz);
-			res.analysis.addAllJavaSourceAnnotations();
-			return res;
-	}
-
-	public static <T> BuildResult buildAndUseJavaAnnotations(Class<T> clazz, IStaticLattice<String> l)
-				throws ApiTestException, ClassHierarchyException, IOException, UnsoundGraphException, CancelException {
-			BuildResult res = buildAndUseJavaAnnotations(clazz);
-			res.analysis.setLattice(l);
-			res.analysis.addAllJavaSourceAnnotations(l);
-			return res;
+	public BuildResult buildOrDie() {
+		try {
+			return build();
+		} catch (ClassHierarchyException | UnsoundGraphException | CancelException | IOException e) {
+			e.printStackTrace();
+			System.exit(1);
+			return null;
+		}
 	}
 	
-	public static <T> BuildResult buildOrDie(Class<T> clazz) {
+	public Program buildProgram() throws ClassHierarchyException, UnsoundGraphException, CancelException, IOException {
+		build();
+		return new Program(res).setMethodInvocationHandler(methodInvocationHandler);
+	}
+
+	public Program buildProgramOrDie() {
+		buildOrDie();
+		return new Program(res).setMethodInvocationHandler(methodInvocationHandler);
+	}
+	
+	/**
+	 * Call a build method before
+	 */
+	public Builder dump() {
+		assert res != null;
 		try {
-			return buildAndUseJavaAnnotations(clazz);
-		} catch (ClassHierarchyException | ApiTestException | IOException | UnsoundGraphException | CancelException e) {
+			BufferedOutputStream bOut = 
+					new BufferedOutputStream(new FileOutputStream(dumpDir.resolve(className + ".pdg").toFile()));
+			SDGSerializer.toPDGFormat(res.analysis.getProgram().getSDG(), bOut);
+		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 			System.exit(1);
 		}
-		return null;
+		return this;
 	}
 	
-	public static <T> BuildResult buildAndDump(Class<T> clazz) {
-		BuildResult res = IOUtil.buildOrDie(clazz);
-		dump(res.analysis.getProgram().getSDG(), clazz.getName());
-		return res;
+	public Builder dumpDotGraphs() {
+		DotRegistry.get().storeFiles();
+		return this;
+	}
+	
+	public Builder enableDumpAfterBuild() {
+		dumpAfterBuild = true;
+		return this;
+	}
+	
+	public Builder methodInvocationHandler(String handler) {
+		methodInvocationHandler = handler;
+		return this;
 	}
 }

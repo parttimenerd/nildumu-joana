@@ -15,13 +15,13 @@ import static edu.kit.nildumu.ui.CodeUI.*;
  * l output int o = h | ;
  * </code>
  */
-@Config(intWidth=2)
 public class Simple4 {
 	
 	public static void main(String[] args) {
 		program(1, 1);
 	}
 	
+	@Config(intWidth=2)
 	@EntryPoint
 	public static void program(@Source(level=Level.HIGH) int h, @Source(level=Level.HIGH) int h2) {
 		int a = 0b0 | h;

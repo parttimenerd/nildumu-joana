@@ -1,12 +1,19 @@
 package edu.kit.nildumu.util;
 
 import java.time.temporal.ValueRange;
-import java.util.*;
-import java.util.stream.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import edu.kit.nildumu.Lattices;
-
-import static edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.Bit;
 
 public class Util {
 
@@ -89,5 +96,11 @@ public class Util {
     
     public static <T> T get(Iterable<T> set){
     	return set.iterator().next();
+    }
+    
+    public static <T> List<T> toList(Iterator<T> iterator){
+    	List<T> res = new ArrayList<>();
+    	iterator.forEachRemaining(res::add);
+    	return res;
     }
 }

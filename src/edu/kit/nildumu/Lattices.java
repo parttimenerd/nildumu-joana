@@ -1,17 +1,41 @@
 package edu.kit.nildumu;
 
+import static edu.kit.nildumu.Lattices.B.ONE;
+import static edu.kit.nildumu.Lattices.B.U;
+import static edu.kit.nildumu.Lattices.B.X;
+import static edu.kit.nildumu.Lattices.B.ZERO;
+import static edu.kit.nildumu.util.Util.log2;
+import static edu.kit.nildumu.util.Util.toBinaryString;
+
 import java.time.temporal.ValueRange;
-import java.util.*;
-import java.util.function.*;
-import java.util.stream.*;
+import java.util.AbstractSet;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.Stack;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util;
-
-import static edu.kit.nildumu.Lattices.B.*;
-import static edu.kit.nildumu.util.Util.*;
 
 public class Lattices {
 

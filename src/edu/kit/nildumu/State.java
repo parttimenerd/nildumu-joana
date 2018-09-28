@@ -1,11 +1,14 @@
 package edu.kit.nildumu;
 
-import java.util.*;
+import static edu.kit.nildumu.Lattices.vl;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
-
-import static edu.kit.nildumu.Lattices.*;
 
 /**
  * State of the variables

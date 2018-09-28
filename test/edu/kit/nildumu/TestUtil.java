@@ -10,7 +10,7 @@ public class TestUtil {
 	
 	static <T> Program load(Class<T> clazz) {
 		if (!resPerClass.containsKey(clazz)) {
-			resPerClass.put(clazz, IOUtil.buildAndDump(clazz));
+			resPerClass.put(clazz, new Builder().entry(clazz).enableDumpAfterBuild().buildOrDie());
 		}
 		return new Program(resPerClass.get(clazz));
 	}

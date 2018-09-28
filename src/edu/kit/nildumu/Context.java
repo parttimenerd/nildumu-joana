@@ -1,52 +1,62 @@
 package edu.kit.nildumu;
 
-import java.util.*;
-import java.util.function.*;
-import java.util.logging.*;
-import java.util.stream.*;
+import static edu.kit.nildumu.Lattices.bl;
+import static edu.kit.nildumu.Lattices.bs;
+import static edu.kit.nildumu.Lattices.vl;
+import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_DELETIONS;
+import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_VALUE_UPDATES;
 
-import com.google.common.collect.Iterators;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Stack;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction;
-import com.ibm.wala.shrikeBT.IConditionalBranchInstruction;
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction.IOperator;
+import com.ibm.wala.shrikeBT.IConditionalBranchInstruction;
 import com.ibm.wala.shrikeBT.IUnaryOpInstruction;
 import com.ibm.wala.ssa.ConstantValue;
-import com.ibm.wala.ssa.IR;
 import com.ibm.wala.ssa.ISSABasicBlock;
-import com.ibm.wala.ssa.SSAArrayLengthInstruction;
-import com.ibm.wala.ssa.SSAArrayLoadInstruction;
-import com.ibm.wala.ssa.SSAArrayStoreInstruction;
 import com.ibm.wala.ssa.SSABinaryOpInstruction;
-import com.ibm.wala.ssa.SSACheckCastInstruction;
-import com.ibm.wala.ssa.SSAComparisonInstruction;
 import com.ibm.wala.ssa.SSAConditionalBranchInstruction;
-import com.ibm.wala.ssa.SSAConversionInstruction;
-import com.ibm.wala.ssa.SSAGetCaughtExceptionInstruction;
-import com.ibm.wala.ssa.SSAGetInstruction;
 import com.ibm.wala.ssa.SSAGotoInstruction;
-import com.ibm.wala.ssa.SSAInstanceofInstruction;
 import com.ibm.wala.ssa.SSAInstruction;
 import com.ibm.wala.ssa.SSAInstruction.Visitor;
 import com.ibm.wala.ssa.SSAInvokeInstruction;
-import com.ibm.wala.ssa.SSALoadMetadataInstruction;
-import com.ibm.wala.ssa.SSAMonitorInstruction;
-import com.ibm.wala.ssa.SSANewInstruction;
 import com.ibm.wala.ssa.SSAPhiInstruction;
-import com.ibm.wala.ssa.SSAPiInstruction;
-import com.ibm.wala.ssa.SSAPutInstruction;
 import com.ibm.wala.ssa.SSAReturnInstruction;
-import com.ibm.wala.ssa.SSASwitchInstruction;
-import com.ibm.wala.ssa.SSAThrowInstruction;
 import com.ibm.wala.ssa.SSAUnaryOpInstruction;
 import com.ibm.wala.ssa.SymbolTable;
 
-import edu.kit.joana.api.sdg.SDGInstruction;
 import edu.kit.joana.ifc.sdg.graph.SDGEdge;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
 import edu.kit.joana.ifc.sdg.graph.SDGNode.Kind;
-import edu.kit.joana.ifc.sdg.graph.SDGNode.Operation;
 import edu.kit.joana.wala.core.PDGNode;
+import edu.kit.nildumu.Lattices.B;
+import edu.kit.nildumu.Lattices.BasicSecLattice;
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.BitLattice;
+import edu.kit.nildumu.Lattices.DependencySet;
+import edu.kit.nildumu.Lattices.Lattice;
+import edu.kit.nildumu.Lattices.Sec;
+import edu.kit.nildumu.Lattices.SecurityLattice;
 import edu.kit.nildumu.Lattices.Value;
+import edu.kit.nildumu.Lattices.ValueLattice;
 import edu.kit.nildumu.MethodInvocationHandler.CallSite;
 import edu.kit.nildumu.MethodInvocationHandler.NodeBasedCallSite;
 import edu.kit.nildumu.ui.CodeUI;
@@ -54,9 +64,6 @@ import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util.Box;
-
-import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.*;
-import static edu.kit.nildumu.Lattices.*;
 
 /**
  * The context contains the global state and the global functions from the thesis.
@@ -167,32 +174,8 @@ public class Context {
         final DefaultMap<SDGNode, Value> nodeValueMap = new DefaultMap<>(new LinkedHashMap<>(), new DefaultMap.Extension<SDGNode, Value>() {
 
             @Override
-            public void handleValueUpdate(DefaultMap<SDGNode, Value> map, SDGNode key, Value value) {
-                if (vl.mapBits(map.get(key), value, (a, b) -> a != b).stream().anyMatch(p -> p)){
-                    nodeValueUpdateCount++;
-                }
-            }
-
-            @Override
             public Value defaultValue(Map<SDGNode, Value> map, SDGNode key) {
                 return vl.bot();
-            }
-        }, FORBID_DELETIONS);
-
-        long nodeVersionUpdateCount = 0;
-
-        final DefaultMap<SDGNode, Integer> nodeVersionMap = new DefaultMap<>(new LinkedHashMap<>(), new DefaultMap.Extension<SDGNode, Integer>() {
-
-            @Override
-            public void handleValueUpdate(DefaultMap<SDGNode, Integer> map, SDGNode key, Integer value) {
-                if (map.get(key) != value){
-                    nodeVersionUpdateCount++;
-                }
-            }
-
-            @Override
-            public Integer defaultValue(Map<SDGNode, Integer> map, SDGNode key) {
-                return 0;
             }
         }, FORBID_DELETIONS);
 
@@ -392,9 +375,6 @@ public class Context {
             } else {
                 newValue = oldValue;
             }
-            if (somethingChanged){
-                nodeValueState.nodeVersionMap.put(resNode, nodeValueState.nodeVersionMap.get(resNode) + 1);
-            }
         } else {
             somethingChanged = nodeValue(resNode).valueEquals(vl.bot());
         }
@@ -565,10 +545,6 @@ public class Context {
         return variableStates.get(variableStates.size() - 1).getReturnValue();
     }
 
-    public long getNodeVersionUpdateCount(){
-        return nodeValueState.nodeVersionUpdateCount;
-    }
-
     /*-------------------------- methods -------------------------------*/
 
     public Context forceMethodInvocationHandler(MethodInvocationHandler handler) {
@@ -684,8 +660,14 @@ public class Context {
     	return getVariableValue(useId + "");
     }
     
+    /**
+     * Handles call to {@link CodeUI#output(int, String)} and {@link CodeUI#leak(int)}
+     * @param callSite
+     */
     private void handleOutputCall(SDGNode callSite) {
 		assert isOutputCall(callSite);
+		java.lang.reflect.Method method = program.getJavaMethodCallTarget(callSite);
+		assert method.getName().equals("output") || method.getName().equals("leak");
 		List<SDGNode> param = program.getParamNodes(callSite);
 		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
     	SymbolTable st = program.getProcSymbolTable(callSite);
@@ -696,8 +678,15 @@ public class Context {
 			value = nodeValueRec(param.get(0));
 		}
 		assert st.isStringConstant(instr.getUse(1));
-		Sec<?> sec = sl.parse(st.getStringValue(instr.getUse(1)));
-		addOutputValue(sec, value);
+		switch (method.getName()) {
+		case "output":
+			Sec<?> sec = sl.parse(st.getStringValue(instr.getUse(1)));
+			addOutputValue(sec, value);
+			break;
+		case "leak":
+			addOutputValue(sl.bot(), value);
+		}
+		//program.builder.getClassHierarchy().getRootClass().getAllMethods().iterator().next().getAnnotations().iterator().next().
     }
 	
 	private boolean isOutputCall(SDGNode callSite) {
@@ -719,7 +708,7 @@ public class Context {
 	}
 	
 	/**
-	 * Extension of {@link Program#workList(SDGNode, Predicate)} that handles {@link CodeUI#output(int, String)} calls
+	 * Extension of  that handles {@link CodeUI#output(int, String)} and {@link CodeUI#leak(int)} calls
 	 * @param entryNode
 	 * @param nodeConsumer
 	 */
@@ -779,6 +768,9 @@ public class Context {
 					break;
 				case MUL:
 					op.val = Operator.MULTIPLY;
+					break;
+				case REM:
+					op.val = Operator.MODULO;
 					break;
 				case SUB:
 					op.val = new Operator() {
@@ -889,7 +881,6 @@ public class Context {
 		final Map<SDGNode, ISSABasicBlock> omittedBlocks = new HashMap<>();
 		boolean changed = false;
 		SDGNode node = null;
-		Set<SDGNode> openLoops = new HashSet<>();
 		
 		public FixpointIteration(SDGNode entryNode) {
 			super();
@@ -897,7 +888,7 @@ public class Context {
 		}
 
 		public void run() {
-			workList(entryNode, n -> {
+            workList(entryNode, n -> {
 				if (n.getLabel().equals("many2many")) {
 					return false;
 				}
@@ -919,14 +910,11 @@ public class Context {
 		
 		@Override
 		public void visitConditionalBranch(SSAConditionalBranchInstruction instruction) {
-			if (isLoop()) {
-				openLoops.add(node);
-			}
 			if (evaluate(node)) {
 				Value cond = nodeValue(node);
 				Bit condBit = cond.get(1);
                 B condVal = condBit.val();
-                if (condVal == B.U && openLoops.size() > 0){
+                if (condVal == B.U && isPartOfLoop()){
                     weight(condBit, Context.INFTY);
                 }
                 if (condVal == B.ZERO && condVal != B.U) {
@@ -941,21 +929,13 @@ public class Context {
 			}
 		}
 		
-		boolean isLoop() {
-			Set<SDGNode> alreadyVisited = new HashSet<>();
-			Stack<SDGNode> q = new Stack<>();
-			q.add(node);
-			while (!q.isEmpty()) {
-				SDGNode cur = q.pop();
-				if (cur == node) {
-					return true;
-				}
-				if (!alreadyVisited.contains(cur)) {
-					alreadyVisited.add(cur);
-					q.addAll(program.sdg.getOutgoingEdgesOfKind(cur, SDGEdge.Kind.CONTROL_FLOW).stream().map(SDGEdge::getTarget).collect(Collectors.toList()));
-				}
-			}
-			return false;
+		@Override
+		public void visitGoto(SSAGotoInstruction instruction) {
+			changed = true;
+		}
+		
+		boolean isPartOfLoop() {
+			return program.method(entryNode).getLoopDepth(node) > 0;
 		}
 		
 		@Override
@@ -963,7 +943,6 @@ public class Context {
 			evaluate(node);
 			program.getControlDeps(node).forEach(n -> {
 				omittedBlocks.remove(n);
-				openLoops.add(n);
 			});
 		}
 		
@@ -982,5 +961,11 @@ public class Context {
 			System.err.println(changed);
 			return changed;
 		}
+	}
+	
+	public void printLeakages() {
+		computeLeakage().forEach((sec, res) -> {
+			System.out.println(String.format("%10s: %d bit", sec, res.maxFlow));
+		}); 
 	}
 }

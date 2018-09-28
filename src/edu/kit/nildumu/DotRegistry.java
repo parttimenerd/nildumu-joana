@@ -1,22 +1,44 @@
 package edu.kit.nildumu;
 
+import static edu.kit.nildumu.Context.INFTY;
+import static edu.kit.nildumu.Lattices.bl;
+import static guru.nidi.graphviz.attribute.Attributes.attr;
+import static guru.nidi.graphviz.model.Factory.graph;
+import static guru.nidi.graphviz.model.Factory.mutNode;
+
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
-import java.util.function.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import com.google.common.html.HtmlEscapers;
 
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
-import guru.nidi.graphviz.attribute.*;
-import guru.nidi.graphviz.engine.*;
-import guru.nidi.graphviz.model.*;
-
-import static guru.nidi.graphviz.attribute.Attributes.attr;
-import static guru.nidi.graphviz.model.Factory.*;
-import static edu.kit.nildumu.Context.INFTY;
-import static edu.kit.nildumu.Lattices.*;
+import guru.nidi.graphviz.attribute.Attributes;
+import guru.nidi.graphviz.attribute.Color;
+import guru.nidi.graphviz.attribute.Font;
+import guru.nidi.graphviz.attribute.RankDir;
+import guru.nidi.graphviz.attribute.Records;
+import guru.nidi.graphviz.engine.Engine;
+import guru.nidi.graphviz.engine.Format;
+import guru.nidi.graphviz.engine.Graphviz;
+import guru.nidi.graphviz.model.Graph;
+import guru.nidi.graphviz.model.MutableNode;
 
 /**
  * Registry for generated graphviz files.
@@ -76,7 +98,7 @@ public class DotRegistry {
         }
     }
 
-    public static final String TMP_DIR = "tmp";
+    public static String TMP_DIR = "tmp";
 
     private boolean enabled = true;
 

@@ -14,13 +14,13 @@ import static edu.kit.nildumu.ui.CodeUI.*;
  * l output int o = h | 1;
  * </code>
  */
-@Config(intWidth=2)
 public class Simple2 {
 	
 	public static void main(String[] args) {
 		program(1);
 	}
 	
+	@Config(intWidth=2)
 	@EntryPoint
 	public static void program(@Source(level=Level.HIGH) int h) {
 		output(h | 1, "l");

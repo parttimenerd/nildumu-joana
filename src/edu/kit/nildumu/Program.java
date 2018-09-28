@@ -1,19 +1,19 @@
 package edu.kit.nildumu;
 
-import java.lang.annotation.Annotation;
+import static edu.kit.nildumu.Lattices.bl;
+import static edu.kit.nildumu.Lattices.vl;
+
 import java.lang.reflect.Parameter;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Queue;
+import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -26,6 +26,7 @@ import com.google.common.collect.Iterators;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ssa.IR;
 import com.ibm.wala.ssa.ISSABasicBlock;
+import com.ibm.wala.ssa.SSACFG;
 import com.ibm.wala.ssa.SSAInstruction;
 import com.ibm.wala.ssa.SSAInvokeInstruction;
 import com.ibm.wala.ssa.SymbolTable;
@@ -33,7 +34,6 @@ import com.ibm.wala.ssa.SymbolTable;
 import edu.kit.joana.api.IFCAnalysis;
 import edu.kit.joana.api.annotations.AnnotationType;
 import edu.kit.joana.api.sdg.SDGFormalParameter;
-import edu.kit.joana.api.sdg.SDGInstruction;
 import edu.kit.joana.api.sdg.SDGMethod;
 import edu.kit.joana.api.sdg.SDGProgram;
 import edu.kit.joana.api.sdg.SDGProgramPartVisitor;
@@ -41,7 +41,6 @@ import edu.kit.joana.ifc.sdg.graph.SDG;
 import edu.kit.joana.ifc.sdg.graph.SDGEdge;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
 import edu.kit.joana.ifc.sdg.graph.SDGNode.Kind;
-import edu.kit.joana.ifc.sdg.graph.SDGNode.Operation;
 import edu.kit.joana.ifc.sdg.lattice.IStaticLattice;
 import edu.kit.joana.ifc.sdg.util.JavaMethodSignature;
 import edu.kit.joana.ifc.sdg.util.JavaType;
@@ -49,8 +48,8 @@ import edu.kit.joana.ui.annotations.Source;
 import edu.kit.joana.util.Pair;
 import edu.kit.joana.wala.core.PDG;
 import edu.kit.joana.wala.core.PDGNode;
-import edu.kit.joana.wala.core.SDGBuildArtifacts;
 import edu.kit.joana.wala.core.SDGBuilder;
+import edu.kit.nildumu.Lattices.B;
 import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.ui.CodeUI;
@@ -58,8 +57,6 @@ import edu.kit.nildumu.ui.Config;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Util;
 import edu.kit.nildumu.util.Util.Box;
-
-import static edu.kit.nildumu.Lattices.*;
 
 /**
  * Contains all static information on the program and helper methods
@@ -70,13 +67,32 @@ public class Program {
 	 * Combines a method with its entry and some helper methods
 	 */
 	public static class Method {
+		public final Program program;
 		public final SDGMethod method;
 		public final SDGNode entry;
+		public final IR ir;
 		
-		public Method(SDGMethod method, SDGNode entry) {
-			super();
+		/**
+		 * Dominators and loop headers for the cfg
+		 */
+		public final Dominators<ISSABasicBlock> doms;
+		
+		public Method(Program program, SDGMethod method, SDGNode entry, Dominators<ISSABasicBlock> doms) {
+			this.program = program;
 			this.method = method;
 			this.entry = entry;
+			this.doms = doms;
+			this.ir = program.getProcIR(entry);
+			this.doms.registerDotGraph("cfg", method.getSignature().toStringHRShort(), 
+					b -> {
+						List<String> strs = new ArrayList<>();
+						Stream.of(b.getFirstInstructionIndex(), b.getLastInstructionIndex())
+							.filter(i -> i > 0).map(i -> ir.getInstructions()[i])
+							.filter(Objects::nonNull)
+							.forEach(instr -> strs.add(instr.toString()));
+						strs.add(b.getNumber() + "");
+						return strs.stream().collect(Collectors.joining("|"));
+					});
 		}
 		
 		@Override
@@ -85,7 +101,7 @@ public class Program {
 		}
 		
 		public boolean isOutputMethod() {
-			return classForType(method.getSignature().getDeclaringType()).equals(CodeUI.class) && method.getSignature().getMethodName().equals("output");
+			return classForType(method.getSignature().getDeclaringType()).equals(CodeUI.class);
 		}
 		
 		public boolean isMainMethod() {
@@ -103,12 +119,16 @@ public class Program {
 		public List<SDGFormalParameter> getParameters(){
 			return method.getParameters().stream().sorted(Comparator.comparingInt(SDGFormalParameter::getIndex)).collect(Collectors.toList());
 		}
+		
+		public int getLoopDepth(SDGNode node) {
+			return doms.loopDepth(program.getBlock(node));
+		}
 	}
 
 	public static class MainMethod extends Method {
 
 		public MainMethod(Method method) {
-			super(method.method, method.entry);
+			super(method.program, method.method, method.entry, method.doms);
 		}
 		
 	}
@@ -119,8 +139,10 @@ public class Program {
 		}
 	}
 	
-	@Config
-	private static class Tmp {}
+	private static class Tmp {
+		@Config
+		void func() {}
+	}
 	
 	public static final String MAIN_METHOD_NAME = "program";
 
@@ -146,27 +168,33 @@ public class Program {
 		super();
 		this.ana = build.analysis;
 		this.builder = build.builder;
+		this.sdg = ana.getProgram().getSDG();
 		this.entryToMethod = HashBiMap.create(ana.getProgram().getSDG().sortByProcedures().keySet().stream().collect(Collectors.toMap(n -> n, 
-				n -> new Method(
+				n -> new Method(this,
 						ana.getProgram().getAllMethods().stream()
 							.filter(m -> 
 								n.getBytecodeMethod().equals(m.getSignature().toBCString())
-								).findFirst().get(), n)
+								).findFirst().get(), n, calculateCFGDoms(n))
 				)));
 		this.bcNameToMethod = HashBiMap.create(entryToMethod.values().stream().collect(Collectors.toMap(m -> m.toBCString(), m -> m)));
 		this.main = new MainMethod(entryToMethod.values().stream().filter(m -> m.isMainMethod()).findFirst().get());
 		lattice = ana.getLattice();
-		Config config = getMainClass().getAnnotationsByType(Config.class).length > 0 ? 
-				getMainClass().getAnnotationsByType(Config.class)[0] : 
-			    Tmp.class.getAnnotation(Config.class);
+		Config defaultConfig = null;
+		try {
+			defaultConfig = Tmp.class.getDeclaredMethods()[0].getAnnotation(Config.class);
+		} catch (SecurityException e) {
+			e.printStackTrace();
+		}
+		java.lang.reflect.Method mainMethod = getJavaMethodForSignature(main.method.getSignature());
+		Config config = mainMethod.getAnnotationsByType(Config.class).length > 0 ? 
+				mainMethod.getAnnotationsByType(Config.class)[0] : 
+			    defaultConfig;
 		this.intWidth = config.intWidth();
 		this.context = new Context(this);
-		this.sdg = ana.getProgram().getSDG();
 		check();
 		initContext();
 	}
 
-	
 	private void initContext(){
 		java.lang.reflect.Method mainMethod = Arrays.asList(getMainClass().getMethods()).stream()
 				.filter(m -> m.getName().equals(MAIN_METHOD_NAME)).findFirst().get();
@@ -204,6 +232,11 @@ public class Program {
 			bitWidth = 16;
 		}
 		return bitWidth;
+	}
+	
+	private Dominators<ISSABasicBlock> calculateCFGDoms(SDGNode entry){
+		SSACFG cfg = getProcIR(entry).getControlFlowGraph();
+		return new Dominators<>(cfg.entry(), b -> Util.toList(cfg.getSuccNodes(b)));
 	}
 	
 	private void check() {
@@ -282,9 +315,17 @@ public class Program {
 		Predicate<SDGNode> filter = n -> Arrays.asList(Kind.NORMAL, Kind.EXPRESSION, Kind.PREDICATE, Kind.CALL).contains(n.kind)
 				&& !n.getLabel().endsWith("_exception_") && !Arrays.asList("CALL_RET").contains(n.getLabel());
 		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
-		Queue<SDGNode> q = new ArrayDeque<>();
+
+		//Queue<SDGNode> q = new ArrayDeque<>();
+		Method method = method(entryNode);
+		PriorityQueue<SDGNode> q =
+				new PriorityQueue<>(new TreeSet<>(Comparator.comparingInt(n -> -method.getLoopDepth((SDGNode)n))));
+
 		//topOrder(entryNode).forEach(q::offer);
 		topOrder(entryNode).stream().filter((Predicate<? super SDGNode>) filter).forEach(q::add);
+		/*while (!q.isEmpty()) {
+			System.err.println(" ### "+ q.poll().getLabel());
+		}*/
 		while (!q.isEmpty()) {
 			SDGNode cur = q.poll();
 			if (ignore.test(cur)) {
@@ -480,5 +521,10 @@ public class Program {
 	public Program setMethodInvocationHandler(String props) {
 		context.forceMethodInvocationHandler(MethodInvocationHandler.parseAndSetup(this, props));
 		return this;
+	}
+	
+	public Context analyze() {
+		context.fixPointIteration(main.entry);
+		return context;
 	}
 }

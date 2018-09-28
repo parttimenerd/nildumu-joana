@@ -1,33 +1,46 @@
 package edu.kit.nildumu;
 
+import static edu.kit.nildumu.Context.INFTY;
+import static edu.kit.nildumu.Context.d;
+import static edu.kit.nildumu.Context.v;
+import static edu.kit.nildumu.Lattices.bl;
+import static edu.kit.nildumu.Lattices.ds;
+import static edu.kit.nildumu.Lattices.vl;
+import static edu.kit.nildumu.Lattices.B.U;
+import static edu.kit.nildumu.util.Util.p;
+
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
-import java.util.function.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import guru.nidi.graphviz.engine.*;
-import guru.nidi.graphviz.model.Graph;
-import edu.kit.joana.api.sdg.SDGMethod;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
-import edu.kit.joana.ifc.sdg.graph.SDGNode.Operation;
-import edu.kit.joana.ifc.sdg.graph.slicer.graph.CallGraph;
-import edu.kit.joana.util.SourceLocation;
-import edu.kit.joana.wala.core.PDGNode.Kind;
-import edu.kit.joana.wala.summary.GraphUtil;
 import edu.kit.nildumu.Dominators.Node;
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.DependencySet;
+import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.Program.Method;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util.Box;
-
-import static edu.kit. nildumu.Context.*;
-import static edu.kit.nildumu.Lattices.B.U;
-import static edu.kit.nildumu.Lattices.*;
-import static edu.kit.nildumu.util.Util.p;
+import guru.nidi.graphviz.engine.Format;
+import guru.nidi.graphviz.engine.Graphviz;
+import guru.nidi.graphviz.model.Graph;
 
 /**
  * Handles the analysis of methods → implements the interprocedural part of the analysis.
@@ -470,7 +483,7 @@ public abstract class MethodInvocationHandler {
      * number is {@value Integer#MAX_VALUE}.
      * <p/>
      * The default reduction policy is to connect all return bits with all parameter bits that they
-     * depend upon ("reduction=basic").
+     * depend upon ("reduction=all").
      * And improved version ("reduction=mincut") includes the minimal cut bits of the bit graph from
      * the return to the parameter bits, assuming that the return bits have infinite weights.
      */
@@ -588,7 +601,8 @@ public abstract class MethodInvocationHandler {
         }
 
         List<Value> generateParameters(Program program, Method method){
-            return method.getParameters().stream().map(p ->
+            System.err.println(method);
+        	return method.getParameters().stream().map(p ->
                 program.createUnknownValue(p.getType())
             ).collect(Collectors.toList());
         }
@@ -676,7 +690,7 @@ public abstract class MethodInvocationHandler {
     }
 
     static {
-        register("basic", s -> {}, ps -> new MethodInvocationHandler(){
+        register("all", s -> {}, ps -> new MethodInvocationHandler(){
             @Override
             public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
                 if (arguments.isEmpty() || !callSite.method.hasReturnValue()){
@@ -686,15 +700,15 @@ public abstract class MethodInvocationHandler {
                 return IntStream.range(0, arguments.stream().mapToInt(Value::size).max().getAsInt()).mapToObj(i -> bl.create(U, set)).collect(Value.collector());
             }
         });
-        examplePropLines.add("handler=basic");
-        register("call_string", s -> s.add("maxrec", "2").add("bot", "basic"), ps -> {
+        examplePropLines.add("handler=all");
+        register("call_string", s -> s.add("maxrec", "2").add("bot", "all"), ps -> {
             return new CallStringHandler(Integer.parseInt(ps.getProperty("maxrec")), parse(ps.getProperty("bot")));
         });
-        examplePropLines.add("handler=call_string;maxrec=2;bot=basic");
+        examplePropLines.add("handler=call_string;maxrec=2;bot=all");
         examplePropLines.add("handler=call_string;maxrec=2;bot={handler=summary;bot=call_string}");
         Consumer<PropertyScheme> propSchemeCreator = s ->
                 s.add("maxiter", "1")
-                        .add("bot", "basic")
+                        .add("bot", "all")
                         .add("mode", "auto")
                         .add("reduction", "mincut")
                         .add("csmaxrec", "0")
@@ -705,8 +719,8 @@ public abstract class MethodInvocationHandler {
                     ps.getProperty("mode").equals("ind") ? SummaryHandler.Mode.INDUCTION : (ps.getProperty("mode").equals("auto") ? SummaryHandler.Mode.AUTO : SummaryHandler.Mode.COINDUCTION),
                     parse(ps.getProperty("bot")), dotFolder, SummaryHandler.Reduction.valueOf(ps.getProperty("reduction").toUpperCase()), Integer.parseInt(ps.getProperty("csmaxrec")));
         });
-        examplePropLines.add("handler=summary;bot=basic;reduction=basic");
-        examplePropLines.add("handler=summary;bot=basic;reduction=mincut");
+        examplePropLines.add("handler=summary;bot=all;reduction=basic");
+        examplePropLines.add("handler=summary;bot=all;reduction=mincut");
         //examplePropLines.add("handler=summary_mc;mode=ind");
     }
 
@@ -715,7 +729,7 @@ public abstract class MethodInvocationHandler {
     }
 
     public static String getDefaultPropString(){
-        return "handler=call_string;maxrec=2;bot=basic";
+        return "handler=call_string;maxrec=2;bot=all";
     }
 
     public void setup(Program program){

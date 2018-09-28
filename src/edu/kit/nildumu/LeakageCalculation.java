@@ -1,12 +1,15 @@
 package edu.kit.nildumu;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.Sec;
+import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
 import guru.nidi.graphviz.model.Graph;
-
-import static edu.kit.nildumu.Lattices.*;
 
 public class LeakageCalculation {
 

@@ -1,17 +1,23 @@
 package edu.kit.nildumu;
 
-import java.util.*;
+import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_DELETIONS;
+import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_VALUE_UPDATES;
+
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import edu.kit.nildumu.Lattices.B;
 import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
-
-import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.*;
-import static edu.kit.nildumu.Lattices.*;
 
 /**
  * Contains the bits that are marked as input or output, that have an unknown value

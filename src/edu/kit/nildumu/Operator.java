@@ -1,18 +1,37 @@
 package edu.kit.nildumu;
 
-import java.util.*;
+import static edu.kit.nildumu.Context.v;
+import static edu.kit.nildumu.Lattices.bl;
+import static edu.kit.nildumu.Lattices.bs;
+import static edu.kit.nildumu.Lattices.ds;
+import static edu.kit.nildumu.Lattices.vl;
+import static edu.kit.nildumu.Lattices.B.ONE;
+import static edu.kit.nildumu.Lattices.B.U;
+import static edu.kit.nildumu.Lattices.B.X;
+import static edu.kit.nildumu.Lattices.B.ZERO;
+import static edu.kit.nildumu.Operator.createUnknownValue;
+import static edu.kit.nildumu.Operator.setMultSign;
+import static edu.kit.nildumu.util.Util.log2;
+import static edu.kit.nildumu.util.Util.permutatePair;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Stack;
 import java.util.function.BiPredicate;
-import java.util.stream.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
+import edu.kit.nildumu.Lattices.B;
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.DependencySet;
+import edu.kit.nildumu.Lattices.DependencySetLattice;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.NildumuError;
 import edu.kit.nildumu.util.Pair;
-
-import static edu.kit.nildumu.Context.v;
-import static edu.kit.nildumu.Lattices.*;
-import static edu.kit.nildumu.Lattices.B.*;
-import static edu.kit.nildumu.util.Util.*;
+import edu.kit.nildumu.util.Util.Box;
 
 public interface Operator {
 

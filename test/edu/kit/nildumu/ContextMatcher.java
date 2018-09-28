@@ -1,16 +1,22 @@
 package edu.kit.nildumu;
 
+import static edu.kit.nildumu.Lattices.bs;
+import static edu.kit.nildumu.Lattices.vl;
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import org.junit.jupiter.api.function.Executable;
 
-import edu.kit.nildumu.Context;
-import edu.kit.nildumu.MinCut;
-
-import java.util.*;
-import java.util.function.Consumer;
-import java.util.stream.*;
-
-import static edu.kit.nildumu.Lattices.*;
-import static org.junit.jupiter.api.Assertions.*;
+import edu.kit.nildumu.Lattices.B;
+import edu.kit.nildumu.Lattices.Sec;
+import edu.kit.nildumu.Lattices.Value;
 
 public class ContextMatcher {
 

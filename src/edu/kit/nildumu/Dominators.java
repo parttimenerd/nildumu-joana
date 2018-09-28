@@ -1,15 +1,38 @@
 package edu.kit.nildumu;
 
-import java.util.*;
-import java.util.function.*;
-import java.util.stream.*;
+import static edu.kit.nildumu.util.Util.set;
+import static guru.nidi.graphviz.model.Factory.graph;
+import static guru.nidi.graphviz.model.Factory.node;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Queue;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import com.google.common.html.HtmlEscapers;
 
 import edu.kit.nildumu.util.DefaultMap;
-import guru.nidi.graphviz.attribute.*;
-import guru.nidi.graphviz.model.*;
-
-import static guru.nidi.graphviz.model.Factory.*;
-import static edu.kit.nildumu.util.Util.Box;
+import edu.kit.nildumu.util.Pair;
+import edu.kit.nildumu.util.TriConsumer;
+import edu.kit.nildumu.util.Util.Box;
+import guru.nidi.graphviz.attribute.Attributes;
+import guru.nidi.graphviz.attribute.RankDir;
+import guru.nidi.graphviz.attribute.Records;
+import guru.nidi.graphviz.model.Graph;
 
 /**
  * Dominator calculation on arbitrary graphs
@@ -23,6 +46,7 @@ public class Dominators<T> {
         final boolean isEntryNode;
 
 		public Node(T elem, Set<Node<T>> outs, Set<Node<T>> ins, boolean isEntryNode) {
+			assert (elem == null) == isEntryNode;
 			this.elem = elem;
 			this.outs = outs;
 			this.ins = ins;
@@ -34,13 +58,15 @@ public class Dominators<T> {
         }
 
         private void addOut(Node<T> node){
-            outs.add(node);
+		    if (!outs.contains(node)) {
+                outs.add(node);
+            }
             node.ins.add(this);
         }
 
         @Override
         public String toString() {
-            return elem.toString();
+            return elem == null ? "$abstract entry$" : elem.toString();
         }
 
         public Set<Node<T>> transitiveOutHull(){
@@ -79,7 +105,8 @@ public class Dominators<T> {
             return graph().graphAttr().with(RankDir.TOP_TO_BOTTOM).directed().with((guru.nidi.graphviz.model.Node[])transitiveOutHullAndSelf()
                     .stream().map(n -> node(n.toString())
                             .link((String[])n.outs.stream()
-                            .map(m -> m.toString()).toArray(i -> new String[i])).with(attrSupplier.apply(n))
+                            .map(m -> m.toString()).toArray(i -> new String[i]))
+                            .with(n.isEntryNode ? Records.of("$abstract entry$") : attrSupplier.apply(n))
                      ).toArray(i -> new guru.nidi.graphviz.model.Node[i]));
         }
 
@@ -97,12 +124,12 @@ public class Dominators<T> {
 
 		@Override
 		public int hashCode() {
-			return elem.hashCode();
+			return elem == null ? 0 : elem.hashCode();
 		}
 
 		@Override
 		public boolean equals(Object obj) {
-			return obj.getClass() == Node.class && ((Node<T>)obj).elem.equals(elem);
+			return obj.getClass() == Node.class && ((elem == null && ((Node<T>)obj).elem == null) || (((Node<T>)obj).elem != null && ((Node<T>)obj).elem.equals(elem)));
 		}
         
     }
@@ -112,32 +139,47 @@ public class Dominators<T> {
     final Map<T, Node<T>> elemToNode;
     final Map<Node<T>, Set<Node<T>>> dominators;
     final Map<Node<T>, Integer> loopDepths;
+    /**
+     * Contains the previous loop headers of every node that has one
+     */
+    final Map<Node<T>, Node<T>> loopHeaderPerNode;
+    final Node<T> startNode;
 
-    public Dominators(T entryElem, Function<T, Collection<T>> outs) {
-        this.outs = outs;
+    public Dominators(T startElem, Function<T, Collection<T>> outs) {
         this.entryNode =
-                new Node<T>(entryElem,
+                new Node<T>(null,
                         new HashSet<>(),
                         Collections.emptySet(),
                         true);
+		this.outs = e -> e == null ? set(startElem) : outs.apply(e);
         this.elemToNode =
-                Stream.concat(transitiveHull(entryElem, outs).stream().map(Node<T>::new),
+                Stream.concat(
+                		Stream.concat(Stream.of(startElem), transitiveHull(startElem, outs).stream()).map(Node<T>::new),
                 		Stream.of(entryNode))
                         .collect(Collectors.toMap(n -> n.elem, n -> n));
         elemToNode
                 .entrySet()
                 .forEach(
                         e -> {
-                            outs.apply(e.getKey())
+                            this.outs.apply(e.getKey())
                                     .forEach(m -> e.getValue().addOut(elemToNode.get(m)));
                         });
+        startNode = elemToNode.get(startElem);
         dominators = dominators(entryNode);
-        loopDepths = calcLoopDepth(entryNode, dominators);
+        Pair<Map<Node<T>, Integer>, Map<Node<T>, Node<T>>> p = calcLoopDepthAndHeaders(entryNode, dominators);
+        loopDepths = p.first;
+        loopHeaderPerNode = p.second;
     } 
-  
+    
     public void registerDotGraph(String topic, String name) {
+    	registerDotGraph(topic, name, Object::toString);
+    }
+  
+    public void registerDotGraph(String topic, String name, Function<T, String> labeler) {
         DotRegistry.get().store(topic, name,
-                () -> () -> entryNode.createDotGraph(n -> Records.of(loopDepths.get(n) + "", n.toString())));
+                () -> () -> entryNode.createDotGraph(n -> 
+                Records.of(loopDepths.get(n) + "",
+                		HtmlEscapers.htmlEscaper().escape(labeler.apply(n.elem)))));
     }
     
     static <T> Set<T> transitiveHull(T elem, Function<T, Collection<T>> outs){
@@ -160,11 +202,11 @@ public class Dominators<T> {
             Function<Node<T>, R> bot,
             Function<Node<T>, Set<Node<T>>> next,
             Map<Node<T>, R> state) {
-        return worklist(entryNode, action, bot, next, loopDepths::get, state);
+        return worklist(startNode, action, bot, next, loopDepths::get, state);
     }
 
     public Set<T> dominators(T elem){
-        return dominators.get(elemToNode.get(elem)).stream().map(Node<T>::getElem).collect(Collectors.toSet());
+        return dominators.get(elemToNode.get(elem)).stream().filter(n -> n.elem != null).map(Node<T>::getElem).collect(Collectors.toSet());
     }
 
     public int loopDepth(T elem){
@@ -174,7 +216,18 @@ public class Dominators<T> {
     public boolean containsLoops(){
         return loopDepths.values().stream().anyMatch(l -> l > 0);
     }
+    
+    public boolean isPartOfLoop(T elem) {
+    	return loopDepth(elem) > 0;
+    }
 
+    /**
+     * Returns the previous loop header of a node, or {@code null} if isn't dominated by a header
+     */
+    public T loopHeader(T elem) {
+    	return loopHeaderPerNode.getOrDefault(elemToNode.get(elem), null).elem;
+    }
+    
     public static <T> Map<Node<T>, Set<Node<T>>> dominators(Node<T> entryNode) {
         Set<Node<T>> bot = entryNode.transitiveOutHullAndSelf();
         return worklist(
@@ -194,7 +247,7 @@ public class Dominators<T> {
                 new HashMap<>());
     }
 
-    public static <T> Map<Node<T>, Integer> calcLoopDepth(Node<T> mainNode, Map<Node<T>, Set<Node<T>>> dominators){
+    public static <T> Pair<Map<Node<T>, Integer>, Map<Node<T>, Node<T>>> calcLoopDepthAndHeaders(Node<T> mainNode, Map<Node<T>, Set<Node<T>>> dominators){
         Set<Node<T>> loopHeaders = new HashSet<>();
         dominators.forEach((n, dom) -> {
             dom.forEach(d -> {
@@ -215,31 +268,39 @@ public class Dominators<T> {
                 }
             }
         });
-
         Map<Node<T>, Integer> loopDepths = new HashMap<>();
-        Box<BiConsumer<Node<T>, Integer>> action = new Box<>(null);
-        action.val = (node, depth) -> {
+        // contains the previous header for each node
+        Map<Node<T>, Node<T>> loopHeaderPerNode = new HashMap<>();
+        Box<TriConsumer<Node<T>, Node<T>, List<Pair<Node<T>, Integer>>>> action = new Box<>(null);
+        action.val = (node, header, depth) -> {
             if (loopDepths.containsKey(node)){
                 return;
             }
             if (loopHeaders.contains(node)) {
-                depth += 1;
+                depth = new ArrayList<>(depth);
+                depth.add(0, new Pair<>(node, depth.get(0).second + 1));
             }
-            loopDepths.put(node, depth);
+            for (int i = 0; i < depth.size(); i++) {
+            	if (i == depth.size() - 1 || node.transitiveOutHullAndSelf().contains(depth.get(i).first)) {
+            		loopDepths.put(node, depth.get(i).second);
+            		loopHeaderPerNode.put(node, depth.get(i).first);
+            		break;
+            	}
+            }
             for (Node<T> Node : dominatesDirectly.get(node)) {
                 if (node != Node) {
-                    action.val.accept(Node, depth);
+                    action.val.accept(Node, loopHeaders.contains(node) ? node : header, depth);
                 }
             }
         };
-        action.val.accept(mainNode, 0);
-        return loopDepths;
+        action.val.accept(mainNode, null, new ArrayList<>(Collections.singletonList(new Pair<>(null, 0))));
+        return new Pair<>(loopDepths, loopHeaderPerNode);
     }
 
     /**
      * Basic extendable worklist algorithm implementation
      *
-     * @param mainNode<T> node to start (only methods that this node transitively calls, are considered)
+     * @param mainNode node to start (only methods that this node transitively calls, are considered)
      * @param action transfer function
      * @param bot start element creator
      * @param next next nodes for current node
@@ -256,7 +317,7 @@ public class Dominators<T> {
             Function<Node<T>, Integer> priority,
             Map<Node<T>, R> state) {
         PriorityQueue<Node<T>> queue =
-                new PriorityQueue<>(new TreeSet<>(Comparator.comparingInt(priority::apply)));
+                new PriorityQueue<>(new TreeSet<>(Comparator.comparingInt(n -> -priority.apply((Node<T>)n))));
         queue.addAll(entryNode.transitiveOutHullAndSelfInPostOrder());
         Context.log(() -> String.format("Initial order: %s", queue.toString()));
         queue.forEach(n -> state.put(n, bot.apply(n)));

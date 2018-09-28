@@ -1,22 +1,36 @@
 package edu.kit.nildumu;
 
-import org.jgrapht.graph.*;
-import org.jgrapht.alg.flow.*;
-import org.jgrapht.alg.interfaces.MaximumFlowAlgorithm.MaximumFlow;
+import static edu.kit.nildumu.Context.INFTY;
+import static edu.kit.nildumu.Lattices.bl;
+import static edu.kit.nildumu.Lattices.B.U;
+import static edu.kit.nildumu.util.Util.p;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.jgrapht.alg.flow.EdmondsKarpMaximumFlow;
+import org.jgrapht.alg.flow.PushRelabelMaximumFlow;
+import org.jgrapht.alg.interfaces.MaximumFlowAlgorithm.MaximumFlow;
+import org.jgrapht.graph.DefaultWeightedEdge;
+import org.jgrapht.graph.SimpleDirectedWeightedGraph;
+
+import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.Pair;
-
-import static edu.kit.nildumu.Context.INFTY;
-import static edu.kit.nildumu.Lattices.B.U;
-import static edu.kit.nildumu.Lattices.*;
-import static edu.kit.nildumu.util.Util.*;
+import edu.kit.nildumu.util.Util.Box;
 
 /**
  * Computation of the minimum cut on graphs.

@@ -9,7 +9,7 @@ import java.lang.annotation.Target;
  * Annotation for the main class, that sets for example the bit width of {@code int}.
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE})
+@Target({ElementType.METHOD})
 public @interface Config {
 	int intWidth() default 32;
 }
