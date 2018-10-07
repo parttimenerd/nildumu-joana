@@ -98,13 +98,13 @@ public class DotRegistry {
         }
     }
 
-    public static String TMP_DIR = "tmp";
+    public final static String TMP_DIR = "tmp";
 
     private boolean enabled = true;
 
     private Map<String, LinkedHashMap<String, DotFile>> filesPerTopic = new LinkedHashMap<>();
 
-    private final Path tmpDir;
+    private Path tmpDir;
 
     private static DotRegistry instance = new DotRegistry();
 
@@ -252,5 +252,14 @@ public class DotRegistry {
     
     public void storeFiles() {
     	filesPerTopic.values().stream().flatMap(v -> v.values().stream()).forEach(DotFile::getSvgPath);
+    }
+
+    public void setTmpDir(String tmpDirectory) {
+    	tmpDir = Paths.get(tmpDirectory);
+        try {
+            Files.createDirectories(tmpDir);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

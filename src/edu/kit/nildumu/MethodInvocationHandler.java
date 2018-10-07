@@ -35,7 +35,7 @@ import edu.kit.nildumu.Lattices.DependencySet;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.Program.Method;
 import edu.kit.nildumu.util.DefaultMap;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util.Box;
 import guru.nidi.graphviz.engine.Format;
@@ -84,7 +84,7 @@ public abstract class MethodInvocationHandler {
         }
 
         public void error(String msg){
-            throw new MethodInvocationHandlerInitializationError(String.format("%s[%s]%s",input.substring(0, cur), msg, cur >= input.length() ? "" : input.substring(cur)));
+            throw new MethodInvocationHandlerInitializationException(String.format("%s[%s]%s",input.substring(0, cur), msg, cur >= input.length() ? "" : input.substring(cur)));
         }
 
         private void expect(char c){
@@ -166,15 +166,15 @@ public abstract class MethodInvocationHandler {
         Properties properties = new PropertyScheme().add("handler").parse(props, true);
         String handlerName = properties.getProperty("handler");
         if (!registry.containsKey(handlerName)){
-            throw new MethodInvocationHandlerInitializationError(String.format("unknown handler %s, possible handlers are: %s", handlerName, registry.keySet()));
+            throw new MethodInvocationHandlerInitializationException(String.format("unknown handler %s, possible handlers are: %s", handlerName, registry.keySet()));
         }
         try {
             Pair<PropertyScheme, Function<Properties, MethodInvocationHandler>> pair = registry.get(handlerName);
             return pair.second.apply(pair.first.parse(props));
-        } catch (MethodInvocationHandlerInitializationError error){
+        } catch (MethodInvocationHandlerInitializationException error){
             throw error;
         } catch (Error error){
-            throw new MethodInvocationHandlerInitializationError(String.format("parsing \"%s\": %s", props, error.getMessage()));
+            throw new MethodInvocationHandlerInitializationException(String.format("parsing \"%s\": %s", props, error.getMessage()));
         }
     }
     
@@ -188,9 +188,9 @@ public abstract class MethodInvocationHandler {
         return Collections.unmodifiableList(examplePropLines);
     }
 
-    public static class MethodInvocationHandlerInitializationError extends NildumuError {
+    public static class MethodInvocationHandlerInitializationException extends NildumuException {
 
-        public MethodInvocationHandlerInitializationError(String message) {
+        public MethodInvocationHandlerInitializationException(String message) {
             super("Error initializing the method invocation handler: " + message);
         }
     }
@@ -228,7 +228,7 @@ public abstract class MethodInvocationHandler {
             for (Map.Entry<String, String> defaulValEntry : defaultValues.entrySet()) {
                 if (!properties.containsKey(defaulValEntry.getKey())){
                     if (defaulValEntry.getValue() == null){
-                        throw new MethodInvocationHandlerInitializationError(String.format("for string \"%s\": property %s not set", props, defaulValEntry.getKey()));
+                        throw new MethodInvocationHandlerInitializationException(String.format("for string \"%s\": property %s not set", props, defaulValEntry.getKey()));
                     }
                     properties.setProperty(defaulValEntry.getKey(), defaulValEntry.getValue());
                 }
@@ -236,7 +236,7 @@ public abstract class MethodInvocationHandler {
             if (!allowAnyProps) {
                 for (String prop : properties.stringPropertyNames()) {
                     if (!defaultValues.containsKey(prop)) {
-                        throw new MethodInvocationHandlerInitializationError(String.format("for string \"%s\": property %s unknown, valid properties are: %s", props, prop, defaultValues.keySet().stream().sorted().collect(Collectors.joining(", "))));
+                        throw new MethodInvocationHandlerInitializationException(String.format("for string \"%s\": property %s unknown, valid properties are: %s", props, prop, defaultValues.keySet().stream().sorted().collect(Collectors.joining(", "))));
                     }
                 }
             }
@@ -305,7 +305,7 @@ public abstract class MethodInvocationHandler {
                 methodCallCounter.put(method, methodCallCounter.get(method) + 1);
                 c.pushNewMethodInvocationState(callSite, arguments);
                 for (int i = 0; i < arguments.size(); i++) {
-                    c.setVariableValue(i + "", arguments.get(i));
+                    c.setParamValue(i + 1, arguments.get(i));
                 }
                 c.fixPointIteration(method.entry);
                 Value ret = c.getReturnValue();
@@ -314,6 +314,11 @@ public abstract class MethodInvocationHandler {
                 return ret;
             }
             return botHandler.analyze(c, callSite, arguments);
+        }
+        
+        @Override
+        public String getName() {
+        	return "call_string";
         }
     }
 
@@ -611,7 +616,7 @@ public abstract class MethodInvocationHandler {
             c.resetNodeValueStates();
             c.pushNewMethodInvocationState(callSites.get(method), parameters.stream().flatMap(Value::stream).collect(Collectors.toSet()));
             for (int i = 0; i < parameters.size(); i++) {
-                c.setVariableValue(i + "", parameters.get(i));
+                c.setParamValue(i + 1, parameters.get(i));
             }
             c.forceMethodInvocationHandler(handler);
             c.fixPointIteration(method.entry);
@@ -626,6 +631,11 @@ public abstract class MethodInvocationHandler {
                 @Override
                 public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
                     return curVersion.apply(callSite.method).applyToArgs(c, arguments);
+                }
+                
+                @Override
+                public String getName() {
+                	return "internal";
                 }
             };
             if (callStringMaxRec > 0){
@@ -687,6 +697,11 @@ public abstract class MethodInvocationHandler {
         public Value analyze(Context c, CallSite callSite, List<Value> arguments) { 
         	return methodGraphs.get(callSite.method).applyToArgs(c, arguments);
         }
+        
+        @Override
+        public String getName() {
+        	return "summary";
+        }
     }
 
     static {
@@ -698,6 +713,10 @@ public abstract class MethodInvocationHandler {
                 }
                 DependencySet set = arguments.stream().flatMap(Value::stream).collect(DependencySet.collector());
                 return IntStream.range(0, arguments.stream().mapToInt(Value::size).max().getAsInt()).mapToObj(i -> bl.create(U, set)).collect(Value.collector());
+            }
+            
+            public String getName() {
+            	return "all";
             }
         });
         examplePropLines.add("handler=all");
@@ -736,4 +755,6 @@ public abstract class MethodInvocationHandler {
     }
 
     public abstract Lattices.Value analyze(Context c, CallSite callSite, List<Value> arguments);
+
+    public abstract String getName();
 }

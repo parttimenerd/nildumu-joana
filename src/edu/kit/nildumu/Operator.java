@@ -29,13 +29,13 @@ import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.Lattices.DependencySet;
 import edu.kit.nildumu.Lattices.DependencySetLattice;
 import edu.kit.nildumu.Lattices.Value;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util.Box;
 
 public interface Operator {
 
-    public static class WrongArgumentNumber extends NildumuError {
+    public static class WrongArgumentNumber extends NildumuException {
         WrongArgumentNumber(String op, int actualNumber, int expectedNumber){
             super(String.format("%s, expected %d, but got %d argument(s)", op, expectedNumber, actualNumber));
         }
@@ -187,7 +187,9 @@ public interface Operator {
         public Value compute(Context c, SDGNode node, List<Value> values) {
             currentNode = node;
             int maxWidth = values.stream().mapToInt(Value::size).max().getAsInt();
-            return IntStream.range(1, values.size() + 1).mapToObj(i -> computeBit(c, values.stream().map(v -> v.get(i)).collect(Collectors.toList()))).collect(Value.collector());
+            return IntStream.range(1, maxWidth + 1).mapToObj(i -> {
+            	return computeBit(c, values.stream().map(v -> v.get(i)).collect(Collectors.toList()));
+            }).collect(Value.collector());
         }
 
         abstract Bit computeBit(Context c, List<Bit> bits);
@@ -469,8 +471,8 @@ public interface Operator {
     static final BitWiseOperator PHI_GENERIC = new BitWiseOperatorStructured("phi") {
 
         @Override
-        Bit computeBit(Context c, List<Bit> bits) {
-            List<Bit> nonBots = bits.stream().filter(b -> b.val() == X).collect(Collectors.toList());
+        Bit computeBit(Context c, List<Bit> bits) { // TODO: == → !=
+            List<Bit> nonBots = bits.stream().filter(b -> b.val() != X).collect(Collectors.toList());
             if (nonBots.size() == 1){
                 return nonBots.get(0);
             }
@@ -570,7 +572,7 @@ public interface Operator {
                 if (shift < 0){
                     return RIGHT_SHIFT.compute(c, first, vl.parse(-shift));
                 }
-                return IntStream.range(1, c.maxBitWidth).mapToObj(i -> {
+                return IntStream.range(1, c.maxBitWidth + 1).mapToObj(i -> {
                     if (i - shift < 1){
                         return bl.create(ZERO);
                     }
@@ -682,7 +684,7 @@ public interface Operator {
 	};
 
     default Value compute(Context c, List<Value> arguments){
-        throw new NildumuError("Not implemented");
+        throw new NildumuException("Not implemented");
     }
 
     default Value compute(Context c, SDGNode node, List<Value> arguments){

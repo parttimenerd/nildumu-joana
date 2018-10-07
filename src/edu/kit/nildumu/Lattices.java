@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util;
 
@@ -165,8 +165,8 @@ public class Lattices {
 	        Pair<T, Integer> parse(int start, String str, IdToElement idToElement);
 	    }
 
-	    public static class ParsingError extends NildumuError {
-	        public ParsingError(String source, int column, String message){
+	    public static class ParsingException extends NildumuException {
+	        public ParsingException(String source, int column, String message){
 	            super(String.format("Error in '%s' in column %d: %s", source.substring(0, column) + "\uD83D\uDDF2" + source.substring(column), column, message));
 	        }
 	    }
@@ -229,7 +229,7 @@ public class Lattices {
 	                if (str.charAt(start) == 'ø'){
 	                    return new Pair<>(bot, start + 1);
 	                }
-	                throw new ParsingError(str, start, "Expected '{'");
+	                throw new ParsingException(str, start, "Expected '{'");
 	            }
 	            int i = start + 1;
 	            Set<T> elements = new HashSet<>();
@@ -246,7 +246,7 @@ public class Lattices {
 	                    String id = str.substring(i, end);
 	                    Object res = idToElement.toElem(id);
 	                    if (res == null){
-	                        throw new NildumuError(String.format("No such id %s", id));
+	                        throw new NildumuException(String.format("No such id %s", id));
 	                    }
 	                    elements.add((T)res);
 	                    i = end;
@@ -264,11 +264,11 @@ public class Lattices {
 	                    case '}':
 	                        return new Pair<>(create(elements), i + 1);
 	                    default:
-	                        throw new ParsingError(str, i, "Expected '}'");
+	                        throw new ParsingException(str, i, "Expected '}'");
 	                }
 	            }
 	            if (str.charAt(i) != '}'){
-	                throw new ParsingError(str, i, "Expected '}'");
+	                throw new ParsingException(str, i, "Expected '}'");
 	            }
 	            return new Pair<>(create(elements), i + 1);
 	        }
@@ -359,7 +359,7 @@ public class Lattices {
 	                case 'l':
 	                    return new Pair<>(LOW, start + 1);
 	            }
-	            throw new ParsingError(str, start, String.format("No such security lattice element '%s'", str.substring(start, start + 1)));
+	            throw new ParsingException(str, start, String.format("No such security lattice element '%s'", str.substring(start, start + 1)));
 	        }
 
 	        public String toString() {
@@ -445,7 +445,7 @@ public class Lattices {
 	                case 'l':
 	                    return new Pair<>(LOW, start + 1);
 	            }
-	            throw new ParsingError(str, start, String.format("No such security lattice element '%s'", str.substring(start, start + 1)));
+	            throw new ParsingException(str, start, String.format("No such security lattice element '%s'", str.substring(start, start + 1)));
 	        }
 
 	        @Override
@@ -535,7 +535,7 @@ public class Lattices {
 	                case '0': return new Pair<>(ZERO, start + 1);
 	                case '1': return new Pair<>(ONE, start + 1);
 	            }
-	            throw new ParsingError(str, start, String.format("No such bit lattice element '%s'", str.substring(start, start + 1)));
+	            throw new ParsingException(str, start, String.format("No such bit lattice element '%s'", str.substring(start, start + 1)));
 	        }
 
 	        @Override
@@ -862,7 +862,7 @@ public class Lattices {
 	            start++;
 	        }
 	        if (str.charAt(start) != '('){
-	            throw new ParsingError(str, start, "Expected '('");
+	            throw new ParsingException(str, start, "Expected '('");
 	        }
 	        int i = start + 1;
 	        List<Object> elements = new ArrayList<>();
@@ -884,11 +884,11 @@ public class Lattices {
 	                case ')':
 	                    return new Pair<>(elements, i + 1);
 	                default:
-	                    throw new ParsingError(str, i, "Expected ')'");
+	                    throw new ParsingException(str, i, "Expected ')'");
 	            }
 	        }
 	        if (str.charAt(i) != ')'){
-	            throw new ParsingError(str, i, "Expected ')'");
+	            throw new ParsingException(str, i, "Expected ')'");
 	        }
 	        return new Pair<>(elements, i + 1);
 	    }
@@ -1127,7 +1127,7 @@ public class Lattices {
 	                int end = start;
 	                char startChar = str.charAt(start);
 	                if (startChar != '+' && startChar != '-' && !Character.isDigit(startChar)) {
-	                    throw new ParsingError(str, start, "Expected number or sign");
+	                    throw new ParsingException(str, start, "Expected number or sign");
 	                }
 	                end++;
 	                while (end < str.length() && Character.isDigit(str.charAt(end))) {
@@ -1191,7 +1191,7 @@ public class Lattices {
 	        public Value(List<Bit> bits) {
 	            //assert bits.size() > 1;
 	            this.bits = bits;
-	            for (int i = 0; i < Math.min(bits.size(), vl == null ? 1000 :vl.bitWidth); i++) {
+	            for (int i = 0; i < Math.min(bits.size(), vl == null ? 1000 : vl.bitWidth); i++) {
 	                Bit bit = bits.get(i);
 	                bit.valueIndex(i + 1);
 	                bit.value(this);
@@ -1372,6 +1372,10 @@ public class Lattices {
 	            }
 	            double twoLog = log2(asInt());
 	            return ((int)twoLog) == twoLog;
+	        }
+	        
+	        public void add(Bit bit) {
+	        	bits.add(bit);
 	        }
 	    }
 }

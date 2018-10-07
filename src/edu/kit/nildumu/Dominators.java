@@ -35,7 +35,10 @@ import guru.nidi.graphviz.attribute.Records;
 import guru.nidi.graphviz.model.Graph;
 
 /**
- * Dominator calculation on arbitrary graphs
+ * Dominator calculation on arbitrary graphs.
+ * 
+ * Loosely based on the loop-nest tree implementation from p. 382 of "modern compiler
+ * implementation in Java" (2nd edition) by Andrew w. Appel 
  */
 public class Dominators<T> {
 

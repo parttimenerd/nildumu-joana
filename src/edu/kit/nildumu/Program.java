@@ -10,17 +10,23 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterators;
 import com.ibm.wala.ipa.callgraph.CGNode;
@@ -54,7 +60,9 @@ import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.ui.Config;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.ui.EntryPoint;
+import edu.kit.nildumu.ui.OutputMethod;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Util;
 import edu.kit.nildumu.util.Util.Box;
 
@@ -70,29 +78,21 @@ public class Program {
 		public final Program program;
 		public final SDGMethod method;
 		public final SDGNode entry;
+		private final Supplier<Dominators<ISSABasicBlock>> domSupplier;
 		public final IR ir;
 		
 		/**
 		 * Dominators and loop headers for the cfg
 		 */
-		public final Dominators<ISSABasicBlock> doms;
+		private Dominators<ISSABasicBlock> doms;
 		
-		public Method(Program program, SDGMethod method, SDGNode entry, Dominators<ISSABasicBlock> doms) {
+		public Method(Program program, SDGMethod method, SDGNode entry, Supplier<Dominators<ISSABasicBlock>> domSupplier) {
 			this.program = program;
 			this.method = method;
 			this.entry = entry;
-			this.doms = doms;
+			this.domSupplier = domSupplier;
+			this.doms = null;
 			this.ir = program.getProcIR(entry);
-			this.doms.registerDotGraph("cfg", method.getSignature().toStringHRShort(), 
-					b -> {
-						List<String> strs = new ArrayList<>();
-						Stream.of(b.getFirstInstructionIndex(), b.getLastInstructionIndex())
-							.filter(i -> i > 0).map(i -> ir.getInstructions()[i])
-							.filter(Objects::nonNull)
-							.forEach(instr -> strs.add(instr.toString()));
-						strs.add(b.getNumber() + "");
-						return strs.stream().collect(Collectors.joining("|"));
-					});
 		}
 		
 		@Override
@@ -101,11 +101,11 @@ public class Program {
 		}
 		
 		public boolean isOutputMethod() {
-			return classForType(method.getSignature().getDeclaringType()).equals(CodeUI.class);
+			return classForType(method.getSignature().getDeclaringType()).get().equals(CodeUI.class);
 		}
 		
 		public boolean isMainMethod() {
-			return method.getSignature().getMethodName().equals(MAIN_METHOD_NAME);
+			return method.getSignature().getMethodName().equals(DEFAULT_MAIN_METHOD_NAME);
 		}
 		
 		public String toBCString() {
@@ -121,19 +121,36 @@ public class Program {
 		}
 		
 		public int getLoopDepth(SDGNode node) {
-			return doms.loopDepth(program.getBlock(node));
+			return getDoms().loopDepth(program.getBlock(node));
+		}
+		
+		public Dominators<ISSABasicBlock> getDoms(){
+			if (doms == null) {
+				doms = domSupplier.get();
+				this.doms.registerDotGraph("cfg", method.getSignature().toStringHRShort(), 
+						b -> {
+							List<String> strs = new ArrayList<>();
+							Stream.of(b.getFirstInstructionIndex(), b.getLastInstructionIndex())
+								.filter(i -> i > 0).map(i -> ir.getInstructions()[i])
+								.filter(Objects::nonNull)
+								.forEach(instr -> strs.add(instr.toString()));
+							strs.add(b.getNumber() + "");
+							return strs.stream().collect(Collectors.joining("|"));
+						});
+			}
+			return doms;
 		}
 	}
 
 	public static class MainMethod extends Method {
 
 		public MainMethod(Method method) {
-			super(method.program, method.method, method.entry, method.doms);
+			super(method.program, method.method, method.entry, method.domSupplier);
 		}
 		
 	}
 	
-	public static class UnsupportedType extends NildumuError {
+	public static class UnsupportedType extends NildumuException {
 		public UnsupportedType(JavaType type) {
 			super(String.format("Type %s is not supported", type.toHRString()));
 		}
@@ -144,7 +161,7 @@ public class Program {
 		void func() {}
 	}
 	
-	public static final String MAIN_METHOD_NAME = "program";
+	public static final String DEFAULT_MAIN_METHOD_NAME = "program";
 
 	public final IFCAnalysis ana;
 	
@@ -165,6 +182,10 @@ public class Program {
 	public final Context context;
 	
 	public Program(BuildResult build) {
+		this(build, null);
+	}
+	
+	public Program(BuildResult build, java.lang.reflect.Method mainMethod) {
 		super();
 		this.ana = build.analysis;
 		this.builder = build.builder;
@@ -174,10 +195,17 @@ public class Program {
 						ana.getProgram().getAllMethods().stream()
 							.filter(m -> 
 								n.getBytecodeMethod().equals(m.getSignature().toBCString())
-								).findFirst().get(), n, calculateCFGDoms(n))
+								).findFirst().get(), n, () -> calculateCFGDoms(n))
 				)));
 		this.bcNameToMethod = HashBiMap.create(entryToMethod.values().stream().collect(Collectors.toMap(m -> m.toBCString(), m -> m)));
-		this.main = new MainMethod(entryToMethod.values().stream().filter(m -> m.isMainMethod()).findFirst().get());
+		this.main = new MainMethod(entryToMethod.values().stream().filter(m -> {
+			if (mainMethod == null) {
+				return m.isMainMethod();
+			} else {
+				return getJavaMethodForSignatureIfPossible(m.method.getSignature()).map(mainMethod::equals).orElse(false);
+			}
+		}).findFirst().get());
+		java.lang.reflect.Method mMethod = getJavaMethodForSignature(main.method.getSignature());
 		lattice = ana.getLattice();
 		Config defaultConfig = null;
 		try {
@@ -185,9 +213,8 @@ public class Program {
 		} catch (SecurityException e) {
 			e.printStackTrace();
 		}
-		java.lang.reflect.Method mainMethod = getJavaMethodForSignature(main.method.getSignature());
-		Config config = mainMethod.getAnnotationsByType(Config.class).length > 0 ? 
-				mainMethod.getAnnotationsByType(Config.class)[0] : 
+		Config config = mMethod.getAnnotationsByType(Config.class).length > 0 ? 
+				mMethod.getAnnotationsByType(Config.class)[0] : 
 			    defaultConfig;
 		this.intWidth = config.intWidth();
 		this.context = new Context(this);
@@ -196,8 +223,7 @@ public class Program {
 	}
 
 	private void initContext(){
-		java.lang.reflect.Method mainMethod = Arrays.asList(getMainClass().getMethods()).stream()
-				.filter(m -> m.getName().equals(MAIN_METHOD_NAME)).findFirst().get();
+		java.lang.reflect.Method mainMethod = getJavaMethodForSignature(main.method.getSignature());
 		main.getParameters().forEach(p -> {
 				Pair<Source, String> ap = Util.get(ana.getJavaSourceAnnotations().getFirst().get(p));
 				Parameter param = mainMethod.getParameters()[p.getIndex() - 1];
@@ -208,8 +234,8 @@ public class Program {
 				} else {
 					val = createUnknownValue(bitWidth);
 				}
-				Sec<?> sec = context.sl.parse(ap.getFirst().level());
-				context.setVariableValue(p.getIndex() + "", val);
+				Sec<?> sec = ap.getFirst().level() == null ? context.sl.top() : context.sl.parse(ap.getFirst().level());
+				context.setParamValue(p.getIndex(), val);
 				context.addInputValue(sec, val);
 			});
 	}
@@ -242,52 +268,52 @@ public class Program {
 	private void check() {
 		List<String> errors = new ArrayList<>();
 		ana.getAnnotations().stream().forEach(a -> {
-			if (a.getProgramPart().getClass() != SDGFormalParameter.class || !((SDGFormalParameter)a.getProgramPart()).getOwningMethod().equals(main.method)) {
-				errors.add(String.format("Annotations are only allowed for parameters"
-						+ " of the %s method, annotation: %s",
-						MAIN_METHOD_NAME, a));
+			boolean hasError = false;
+			if (a.getProgramPart().getClass() == SDGFormalParameter.class) {
+				SDGMethod method = ((SDGFormalParameter)a.getProgramPart()).getOwningMethod();
+				hasError = !getJavaMethodForSignature(method.getSignature()).isAnnotationPresent(EntryPoint.class);
+			} else {
+				hasError = true;
+			}
+			if (hasError) {
+		//		errors.add(String.format("Annotations are only allowed for parameters"
+	//					+ " of an EntryPoint annotated method, annotation: %s", a));
 			}
 			if (a.getType() != AnnotationType.SOURCE) {
 				errors.add(String.format("Only SOURCE annotations are allowed, annotation: %s", a));
 			}
 		});
-		long mmCount = entryToMethod.values().stream().filter(m -> m.isMainMethod()).count();
-		if (mmCount != 1) {
-			throw new RuntimeException(String.format("Expected exactly one entry method named %s, got %d", MAIN_METHOD_NAME, mmCount));
-		}
 		main.method.getParameters().stream()
 		.filter(p -> !ana.getAnnotations().stream().anyMatch(a -> a.getProgramPart().equals(p)))
 		.forEach(p -> errors.add(String.format("Parameter %s of method %s is not annotated",
-				p, MAIN_METHOD_NAME)));
+				p, main.method.getSignature().toHRString())));
 		if (errors.size() > 0) {
-			throw new NildumuError(String.join("\n", errors));
+			throw new NildumuException(String.join("\n", errors));
 		}
 	}
 	
 	private Class<?> getMainClass() {
-		return classForType(main.method.getSignature().getDeclaringType());
+		return classForType(main.method.getSignature().getDeclaringType()).get();
 	}
 	
-	public static Class<?> classForType(JavaType type){
+	public static Optional<Class<?>> classForType(JavaType type){
 		switch (type.toHRString()) {
 		case "int":
-			return int.class;
+			return Optional.of(int.class);
 		case "short":
-			return short.class;
+			return Optional.of(short.class);
 		case "char":
-			return char.class;
+			return Optional.of(char.class);
 		case "byte":
-			return byte.class;
+			return Optional.of(byte.class);
 		case "boolean":
-			return boolean.class;
+			return Optional.of(boolean.class);
 		}
 		try {
-			return Class.forName(type.toHRString());
+			return Optional.of(Class.forName(type.toHRString()));
 		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-			assert false;
-			return null;
 		}
+		return Optional.empty();
 	}
 
 	public SDGProgram getProgram() {
@@ -316,16 +342,19 @@ public class Program {
 				&& !n.getLabel().endsWith("_exception_") && !Arrays.asList("CALL_RET").contains(n.getLabel());
 		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
 
+		List<SDGNode> topOrder = topOrder(entryNode);
+		Map<SDGNode, Integer> topOrderIndex = 
+				IntStream.range(0, topOrder.size()).boxed().collect(Collectors.toMap(topOrder::get, Function.identity()));
+		
 		//Queue<SDGNode> q = new ArrayDeque<>();
 		Method method = method(entryNode);
 		PriorityQueue<SDGNode> q =
-				new PriorityQueue<>(new TreeSet<>(Comparator.comparingInt(n -> -method.getLoopDepth((SDGNode)n))));
+				new PriorityQueue<>((a, b) -> ComparisonChain.start()
+						.compare(-method.getLoopDepth(a), -method.getLoopDepth(b))
+						.compare(topOrderIndex.get(a), topOrderIndex.get(b)).result());
 
 		//topOrder(entryNode).forEach(q::offer);
 		topOrder(entryNode).stream().filter((Predicate<? super SDGNode>) filter).forEach(q::add);
-		/*while (!q.isEmpty()) {
-			System.err.println(" ### "+ q.poll().getLabel());
-		}*/
 		while (!q.isEmpty()) {
 			SDGNode cur = q.poll();
 			if (ignore.test(cur)) {
@@ -391,7 +420,7 @@ public class Program {
 	
 	public boolean isOutputMethodCall(SDGNode callSite) {
 		java.lang.reflect.Method method = getJavaMethodCallTarget(callSite);
-		return method.getDeclaringClass().equals(CodeUI.class) && method.getName().equals("output");
+		return method.getDeclaringClass().equals(CodeUI.class) && method.isAnnotationPresent(OutputMethod.class);
 	}
 	
 	public JavaMethodSignature parseSignature(String signature) {
@@ -399,14 +428,24 @@ public class Program {
 	}
 	
 	public java.lang.reflect.Method getJavaMethodForSignature(JavaMethodSignature signature){
+		return getJavaMethodForSignatureIfPossible(signature).orElseGet(() -> {
+			throw new NildumuException(String.format("Method %s not found", signature.getFullyQualifiedMethodName()));
+		});
+	}
+	
+	public Optional<java.lang.reflect.Method> getJavaMethodForSignatureIfPossible(JavaMethodSignature signature){
 		try {
-			return classForType(signature.getDeclaringType())
-					.getMethod(signature.getMethodName(), 
-							signature.getArgumentTypes().stream().map(Program::classForType).toArray(i -> new Class[i]));
-		} catch (NoSuchMethodException | SecurityException e) {
-			e.printStackTrace();
-			throw new NildumuError(String.format("Method %s not found", signature.getFullyQualifiedMethodName()));
-		}
+			return classForType(signature.getDeclaringType()).map(
+					c -> {
+						try {
+							return c.getMethod(signature.getMethodName(), 
+									signature.getArgumentTypes().stream().map(Program::classForType).map(Optional::get).toArray(i -> new Class[i]));
+						} catch (NoSuchMethodException | SecurityException | NoSuchElementException e) {
+							return null;
+						}
+					});
+		} catch (SecurityException e) {}
+		return Optional.empty();
 	}
 	
 	public java.lang.reflect.Method getJavaMethodCallTarget(SDGNode callSite){
@@ -434,7 +473,12 @@ public class Program {
 	
 	public List<SDGNode> getParamNodes(SDGNode callSite){
 		assert callSite.kind == Kind.CALL;
-		return new ArrayList<>(sdg.getAllActualInsForCallSiteOf(callSite));
+		Method method = getMethodForCallSite(callSite);
+		if (method != null) {
+			
+		}
+		// HACK, parse label (is okay)
+		return sdg.getAllActualInsForCallSiteOf(callSite).stream().sorted(Comparator.comparing(SDGNode::getLabel)).collect(Collectors.toList());
 	}
 	
 	/**
@@ -493,8 +537,11 @@ public class Program {
 		return getPDG(node).cgNode.getIR().getBasicBlockForInstruction(getInstruction(node));
 	}
 	
-	public ISSABasicBlock blockForId(SDGNode base, int id) {
-		return Iterators.filter(getProcIR(base).getBlocks(), b -> b.getNumber() == id).next();
+	/**
+	 * Returns {@code null} if there is no block for this id
+	 */
+	public ISSABasicBlock blockForId(SDGNode base, int firstInstructionId) {
+		return Iterators.getOnlyElement(Iterators.filter(getProcIR(base).getBlocks(), b -> b.getFirstInstructionIndex() == firstInstructionId), null);
 	}
 	
 	/**
@@ -519,7 +566,9 @@ public class Program {
 	}
 	
 	public Program setMethodInvocationHandler(String props) {
-		context.forceMethodInvocationHandler(MethodInvocationHandler.parseAndSetup(this, props));
+		if (props != null) {
+			context.forceMethodInvocationHandler(MethodInvocationHandler.parseAndSetup(this, props));
+		}
 		return this;
 	}
 	

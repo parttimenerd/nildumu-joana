@@ -8,9 +8,12 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Stream;
 
@@ -56,6 +59,8 @@ public class Builder {
 	public static final String PROPERTIES_FILE = "classpaths.properties";
 	public static final String TEST_DATA_CLASSPATH;
 	public static final String TEST_DATA_GRAPHS;
+	
+	private static final Map<String, BuildResult> cache = new HashMap<>();
 
 	static {
 		TEST_DATA_CLASSPATH = loadProperty("joana.api.testdata.classpath", "bin");
@@ -147,10 +152,14 @@ public class Builder {
 	private BuildResult res = null;
 
 	private String className;
+	
+	private Method entryMethod = null;
 
 	private boolean dumpAfterBuild = false;
 	
 	private String methodInvocationHandler = "basic";
+	
+	private boolean doCache = false;
 	
 	/**
 	 * Set the entry class
@@ -165,6 +174,11 @@ public class Builder {
 		return entry(clazz.getName());
 	}
 
+	public Builder entryMethod(Method method) {
+		this.entryMethod = method;
+		return this;
+	}
+	
 	public Builder classpath(String classpath) {
 		config.setClassPath(classpath);
 		return this;
@@ -175,19 +189,27 @@ public class Builder {
 	 */
 	public Builder dumpDir(String dirName) {
 		this.dumpDir = Paths.get(dirName);
-		DotRegistry.TMP_DIR = dirName;
+		DotRegistry.get().setTmpDir(dirName);
 		return this;
 	}
 
 	public BuildResult build() throws ClassHierarchyException, UnsoundGraphException, CancelException, IOException {
-		Pair<SDGBuilder, SDGProgram> pair = createSDGProgram(config);
-		IFCAnalysis ana = new IFCAnalysis(pair.second);
-		ana.addAllJavaSourceAnnotations();
-		res = new BuildResult(pair.first, ana);
-		if (dumpAfterBuild) {
-			dump();
+		if (cache.containsKey(config.getEntryMethod()) || !doCache) {
+			Pair<SDGBuilder, SDGProgram> pair = createSDGProgram(config);
+			IFCAnalysis ana = new IFCAnalysis(pair.second);
+			ana.addAllJavaSourceAnnotations();
+			res = new BuildResult(pair.first, ana);
+			if (dumpAfterBuild) {
+				dump();
+				dumpDotGraphs();
+			}
+			if (doCache) {
+				cache.put(config.getEntryMethod(), res);
+			} else {
+				return res;
+			}
 		}
-		return res;
+		return cache.get(config.getEntryMethod());
 	}
 
 	public BuildResult buildOrDie() {
@@ -202,12 +224,12 @@ public class Builder {
 	
 	public Program buildProgram() throws ClassHierarchyException, UnsoundGraphException, CancelException, IOException {
 		build();
-		return new Program(res).setMethodInvocationHandler(methodInvocationHandler);
+		return new Program(res, entryMethod).setMethodInvocationHandler(methodInvocationHandler);
 	}
 
 	public Program buildProgramOrDie() {
 		buildOrDie();
-		return new Program(res).setMethodInvocationHandler(methodInvocationHandler);
+		return new Program(res, entryMethod).setMethodInvocationHandler(methodInvocationHandler);
 	}
 	
 	/**
@@ -216,6 +238,11 @@ public class Builder {
 	public Builder dump() {
 		assert res != null;
 		try {
+			try {
+				Files.createDirectories(dumpDir);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			BufferedOutputStream bOut = 
 					new BufferedOutputStream(new FileOutputStream(dumpDir.resolve(className + ".pdg").toFile()));
 			SDGSerializer.toPDGFormat(res.analysis.getProgram().getSDG(), bOut);
@@ -238,6 +265,14 @@ public class Builder {
 	
 	public Builder methodInvocationHandler(String handler) {
 		methodInvocationHandler = handler;
+		return this;
+	}
+	
+	/**
+	 * Enable caching of the SDG creation
+	 */
+	public Builder cache() {
+		this.doCache = true;
 		return this;
 	}
 }

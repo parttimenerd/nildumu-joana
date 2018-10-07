@@ -61,7 +61,7 @@ import edu.kit.nildumu.MethodInvocationHandler.CallSite;
 import edu.kit.nildumu.MethodInvocationHandler.NodeBasedCallSite;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.util.DefaultMap;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util.Box;
 
@@ -72,14 +72,14 @@ import edu.kit.nildumu.util.Util.Box;
  */
 public class Context {
 
-    public static class NotAnInputBit extends NildumuError {
-        NotAnInputBit(Bit offendingBit, String reason){
+    static class NotAnInputBitException extends NildumuException {
+        private NotAnInputBitException(Bit offendingBit, String reason){
             super(String.format("%s is not an input bit: %s", offendingBit.repr(), reason));
         }
     }
 
-    public static class InvariantViolationError extends NildumuError {
-        InvariantViolationError(String msg){
+    static class InvariantViolationException extends NildumuException {
+        private InvariantViolationException(String msg){
             super(msg);
         }
     }
@@ -88,15 +88,16 @@ public class Context {
     static {
         LOG.setLevel(Level.INFO);
     }
-    public final Program program;
     
-    public final SecurityLattice<?> sl;
+    final Program program;
+    
+    final SecurityLattice<?> sl;
 
-    public final int maxBitWidth;
+    final int maxBitWidth;
 
-    public final IOValues input = new IOValues();
+    final IOValues input = new IOValues();
 
-    public final IOValues output = new IOValues();
+    final IOValues output = new IOValues();
 
     private final Stack<State> variableStates = new Stack<>();
 
@@ -120,8 +121,8 @@ public class Context {
         }
     }, FORBID_DELETIONS, FORBID_VALUE_UPDATES);
 
-    public static class CallPath {
-        final List<CallSite> path;
+    static class CallPath {
+        private final List<CallSite> path;
 
         CallPath(){
             this(Collections.emptyList());
@@ -131,13 +132,13 @@ public class Context {
             this.path = path;
         }
 
-        public CallPath push(CallSite callSite){
+        CallPath push(CallSite callSite){
             List<CallSite> newPath = new ArrayList<>(path);
             newPath.add(callSite);
             return new CallPath(newPath);
         }
 
-        public CallPath pop(){
+        CallPath pop(){
             List<CallSite> newPath = new ArrayList<>(path);
             newPath.remove(newPath.size() - 1);
             return new CallPath(newPath);
@@ -169,8 +170,6 @@ public class Context {
 
     public static class NodeValueState {
 
-        long nodeValueUpdateCount = 0;
-
         final DefaultMap<SDGNode, Value> nodeValueMap = new DefaultMap<>(new LinkedHashMap<>(), new DefaultMap.Extension<SDGNode, Value>() {
 
             @Override
@@ -181,7 +180,7 @@ public class Context {
 
         final CallPath path;
 
-        public NodeValueState(CallPath path) {
+        private NodeValueState(CallPath path) {
             this.path = path;
         }
     }
@@ -207,7 +206,7 @@ public class Context {
 
     /*-------------------------- unspecific -------------------------------*/
 
-    public Context(Program program) {
+    Context(Program program) {
         this.sl = BasicSecLattice.get();
         this.maxBitWidth = program.intWidth;
         this.variableStates.push(new State());
@@ -248,7 +247,7 @@ public class Context {
         for (Bit bit : value){
             if (bit.val() == B.U){
                 if (!bit.deps().isEmpty()){
-                    throw new NotAnInputBit(bit, "has dependencies");
+                    throw new NotAnInputBitException(bit, "has dependencies");
                 }
                 sec(bit, sec);
             }
@@ -256,41 +255,26 @@ public class Context {
         return value;
     }
 
-    public Value addOutputValue(Sec<?> sec, Value value){
+    Value addOutputValue(Sec<?> sec, Value value){
         output.add(sec, value);
         return value;
     }
-
-    public boolean checkInvariants(Bit bit) {
-        return (sec(bit) == sl.bot() || (!v(bit).isConstant() && d(bit).isEmpty()))
-                && (!v(bit).isConstant() || (d(bit).isEmpty() && sec(bit) == sl.bot()));
-    }
-
-    public void checkInvariants(){
-        List<String> errorMessages = new ArrayList<>();
-        walkBits(b -> {
-            if (!checkInvariants(b)){
-              //  errorMessages.add(String.format("Invariants don't hold for %s", b.repr()));
-            }
-        }, p -> false);
-        throw new InvariantViolationError(String.join("\n", errorMessages));
-    }
-
+    
     public static void log(Supplier<String> msgProducer){
         if (LOG.isLoggable(Level.FINE)){
             System.out.println(msgProducer.get());
         }
     }
 
-    public boolean isInputBit(Bit bit) {
+    boolean isInputBit(Bit bit) {
         return input.contains(bit);
     }
 
-    public Value nodeValue(SDGNode node){
+    Value nodeValue(SDGNode node){
         return nodeValueState.nodeValueMap.get(node);
     }
 
-    public Value nodeValue(SDGNode node, Value value){
+    Value nodeValue(SDGNode node, Value value){
         return nodeValueState.nodeValueMap.put(node, value);
     }
 
@@ -298,10 +282,7 @@ public class Context {
         return operatorPerNode.get(node);
     }
 
-    public Value op(SDGNode node, List<Value> arguments){
-        /*if (node instanceof VariableAccessNode){
-            return replace(nodeValue(((VariableAccessNode) node).definingExpression));
-        }*/
+    private Value op(SDGNode node, List<Value> arguments){
     	Operator operator = operatorForNode(node);
     	if (operator == null) {
     		return new Value(bl.create(B.X));
@@ -309,7 +290,7 @@ public class Context {
         return operatorForNode(node).compute(this, node, arguments);
     }
 
-    public List<Value> opArgs(SDGNode node){
+    private List<Value> opArgs(SDGNode node){
     	System.err.println(node.getLabel());
     	SSAInstruction instr = program.getInstruction(node);
     	if (instr == null) {
@@ -327,7 +308,7 @@ public class Context {
     			if (st.isBooleanConstant(i)) {
     				return vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
     			}
-    			throw new NildumuError(String.format("Unsupported constant type %s", val.getClass()));
+    			throw new NildumuException(String.format("Unsupported constant type %s", val.getClass()));
     		}
     		if (st.isParameter(i)) {
     			return getParamValue(node, i);
@@ -336,7 +317,7 @@ public class Context {
     	}).collect(Collectors.toList());
     }
 
-    public boolean evaluate(SDGNode node){
+    boolean evaluate(SDGNode node){
     	final SDGNode resNode;
     	if (node.kind == Kind.CALL) {
     		PDGNode pdgNode = program.getPDG(node).getReturnOut(program.getPDG(node).getNodeWithId(node.getId()));
@@ -360,21 +341,7 @@ public class Context {
         boolean somethingChanged = false;
         if (nodeValue(resNode) != vl.bot()) { // dismiss first iteration
             Value oldValue = nodeValue(resNode);
-            List<Bit> newBits = new ArrayList<>();
-            somethingChanged = vl.mapBits(oldValue, newValue, (a, b) -> {
-                boolean changed = false;
-                if (a.value() == null){
-                    a.value(oldValue); // newly created bit
-                    changed = true;
-                    newBits.add(a);
-                }
-                return merge(a, b) || changed;
-            }).stream().anyMatch(p -> p);
-            if (newBits.size() > 0){
-                newValue = Stream.concat(oldValue.stream(), newBits.stream()).collect(Value.collector());
-            } else {
-                newValue = oldValue;
-            }
+            merge(oldValue, newValue);
         } else {
             somethingChanged = nodeValue(resNode).valueEquals(vl.bot());
         }
@@ -397,7 +364,7 @@ public class Context {
         return input.getBits().stream().filter(p -> !(((SecurityLattice)sl).lowerEqualsThan(p.first, (Sec)minSecEx))).map(p -> p.second).collect(Collectors.toList());
     }
 
-    public Value setVariableValue(String variable, Value value){
+    private Value setVariableValue(String variable, Value value){
         if (variableStates.size() == 1) {
             if (!variableStates.get(0).get(variable).equals(vl.bot())) {
                 throw new UnsupportedOperationException(String.format("Setting an input variable (%s)", variable));
@@ -405,6 +372,18 @@ public class Context {
         }
         variableStates.peek().set(variable, value);
         return value;
+    }
+    
+    /**
+     * Parameter indexes start at 1 (as the 0th parameter is reserved for {@code this},
+     * which isn't currently supported)
+     * 
+     * @param i parameter index
+     * @param value value of the parameter
+     */
+    public void setParamValue(int i, Value value) {
+    	assert i > 0;
+    	setVariableValue(i + "", value);
     }
 
     public Value getVariableValue(String variable){
@@ -454,18 +433,6 @@ public class Context {
             leaks = MinCut.compute(this);
         }
         return leaks;
-    }
-
-    public Set<SDGNode> nodes(){
-        return nodeValueState.nodeValueMap.keySet();
-    }
-
-    public List<String> variableNames(){
-        List<String> variables = new ArrayList<>();
-        for (int i = variableStates.size() - 1; i >= 0; i--){
-            variables.addAll(variableStates.get(i).variableNames());
-        }
-        return variables;
     }
     
     public int c1(Bit bit){
@@ -526,7 +493,7 @@ public class Context {
      * @param n
      * @return true if o value equals the merge result
      */
-    public boolean merge(Bit o, Bit n){
+    private boolean merge(Bit o, Bit n){
         B vt = bs.sup(v(o), v(n));
         int oldDepsCount = o.deps().size();
         o.addDependencies(d(n));
@@ -535,6 +502,25 @@ public class Context {
         }
         o.setVal(vt);
         return true;
+    }
+    
+    /**
+     * merges n into o
+     * @param o
+     * @param n
+     * @return true if o value equals the merge result
+     */
+    private boolean merge(Value oldValue, Value newValue){
+    	boolean somethingChanged = false;
+    	int i = 1;
+    	for (; i <= Math.min(oldValue.size(), newValue.size()); i++){
+            somethingChanged = merge(oldValue.get(i), newValue.get(i)) || somethingChanged;
+        }
+    	for (; i <= newValue.size(); i++){
+    		oldValue.add(newValue.get(i));
+    		somethingChanged = true;
+    	}
+        return somethingChanged;
     }
 
     public void setReturnValue(Value value){
@@ -626,7 +612,7 @@ public class Context {
      * @param node
      * @return
      */
-    public Value nodeValueRec(SDGNode node) {
+    private Value nodeValueRec(SDGNode node) {
     	if (nodeValueState.nodeValueMap.containsKey(node)) {
     		return nodeValueState.nodeValueMap.get(node);
     	}
@@ -677,9 +663,9 @@ public class Context {
 		} else {
 			value = nodeValueRec(param.get(0));
 		}
-		assert st.isStringConstant(instr.getUse(1));
 		switch (method.getName()) {
 		case "output":
+			assert st.isStringConstant(instr.getUse(1));
 			Sec<?> sec = sl.parse(st.getStringValue(instr.getUse(1)));
 			addOutputValue(sec, value);
 			break;
@@ -699,6 +685,16 @@ public class Context {
 		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
     	SymbolTable st = program.getProcSymbolTable(callSite);
 		List<Value> args = IntStream.range(0, instr.getNumberOfUses()).mapToObj(use -> {
+			if (st.isConstant(instr.getUse(0))) {
+    			Object val = ((ConstantValue)st.getValue(instr.getUse(0))).getValue();
+    			if (st.isNumberConstant(instr.getUse(0))) {
+    				return vl.parse(((Number)val).intValue());
+    			}
+    			if (st.isBooleanConstant(instr.getUse(0))) {
+    				return vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
+    			}
+    			throw new NildumuException(String.format("Unsupported constant type %s", val.getClass()));
+    		}
 			if (st.isParameter(instr.getUse(0))){
 				return getParamValue(callSite, instr.getUse(0));
 			}
@@ -715,6 +711,7 @@ public class Context {
 	public void workList(SDGNode entryNode, Predicate<SDGNode> nodeConsumer,
 			Predicate<SDGNode> ignore) {
 		program.workList(entryNode, n -> {
+			System.err.println("Current wl: " + n.getLabel());
 			if (isOutputCall(n)) {
 				handleOutputCall(n);
 				return false;
@@ -866,7 +863,7 @@ public class Context {
        	});
        	System.err.println(instr);
         if (op.val == null){
-            throw new NildumuError(String.format("No operator for %s implemented", Program.toString(node)));
+            throw new NildumuException(String.format("No operator for %s implemented", Program.toString(node)));
         }
         return op.val;
 	}
@@ -875,19 +872,19 @@ public class Context {
 		new FixpointIteration(entryNode).run();
 	}
 	
-	class FixpointIteration extends Visitor {
+	private class FixpointIteration extends Visitor {
 		
-		final SDGNode entryNode;
-		final Map<SDGNode, ISSABasicBlock> omittedBlocks = new HashMap<>();
-		boolean changed = false;
-		SDGNode node = null;
+		private final SDGNode entryNode;
+		private final Map<SDGNode, ISSABasicBlock> omittedBlocks = new HashMap<>();
+		private boolean changed = false;
+		private SDGNode node = null;
 		
-		public FixpointIteration(SDGNode entryNode) {
+		private FixpointIteration(SDGNode entryNode) {
 			super();
 			this.entryNode = entryNode;
 		}
 
-		public void run() {
+		private void run() {
             workList(entryNode, n -> {
 				if (n.getLabel().equals("many2many")) {
 					return false;
@@ -918,14 +915,14 @@ public class Context {
                     weight(condBit, Context.INFTY);
                 }
                 if (condVal == B.ZERO && condVal != B.U) {
-                    omittedBlocks.put(node, program.blockForId(node, instruction.getTarget()));
+                	omitBlock(node, program.blockForId(node, instruction.getTarget()));
                 }
                 if (condVal == B.ONE && condVal != B.U) {
-                	omittedBlocks.put(node, program.getNextBlock(node));
+                	omitBlock(node, program.getNextBlock(node));
                }
 			} else {
-				omittedBlocks.put(node, program.blockForId(node, instruction.getTarget()));
-            	omittedBlocks.put(node, program.getNextBlock(node));
+				omitBlock(node, program.blockForId(node, instruction.getTarget()));
+				omitBlock(node, program.getNextBlock(node));
 			}
 		}
 		
@@ -934,7 +931,7 @@ public class Context {
 			changed = true;
 		}
 		
-		boolean isPartOfLoop() {
+		private boolean isPartOfLoop() {
 			return program.method(entryNode).getLoopDepth(node) > 0;
 		}
 		
@@ -956,10 +953,16 @@ public class Context {
    			evaluate(node);
    		}
 		
-		boolean evaluate(SDGNode node) {
+		private boolean evaluate(SDGNode node) {
 			changed = Context.this.evaluate(node);
 			System.err.println(changed);
 			return changed;
+		}
+		
+		private void omitBlock(SDGNode condNode, ISSABasicBlock block) {
+			if (block != null) {
+				omittedBlocks.put(condNode, block);
+			}
 		}
 	}
 	

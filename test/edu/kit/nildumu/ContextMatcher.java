@@ -88,6 +88,11 @@ public class ContextMatcher {
         return this;
     }
 
+    public ContextMatcher custom(Consumer<Context> test) {
+    	builder.add(() -> test.accept(context));
+    	return this;
+    }
+    
     public class LeakageMatcher {
 
         public LeakageMatcher leaks(Sec<?> attackerSec, int leakage){
@@ -111,6 +116,14 @@ public class ContextMatcher {
             });
             return this;
         }
+        
+        public LeakageMatcher leaksAtMost(Sec sec, int leakage) {
+            builder.add(() -> {
+                MinCut.ComputationResult comp = MinCut.compute(context, sec);
+                assertTrue(comp.maxFlow <= leakage, String.format("The calculated leakage for an attacker of level %s should be at most %d, leaking %d", sec, leakage, comp.maxFlow));
+            });
+            return this;
+        }
     }
 
     public ContextMatcher val(String var, Consumer<ValueMatcher> test){
@@ -128,6 +141,10 @@ public class ContextMatcher {
 
     public ContextMatcher leaksAtLeast(int leakage){
         return leakage(l -> l.leaksAtLeast(context.sl.bot(), leakage));
+    }
+    
+    public ContextMatcher leaksAtMost(int leakage){
+        return leakage(l -> l.leaksAtMost(context.sl.bot(), leakage));
     }
 
     public ContextMatcher bitWidth(int bitWidth){

@@ -16,7 +16,7 @@ import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
-import edu.kit.nildumu.util.NildumuError;
+import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 
 /**
@@ -24,8 +24,8 @@ import edu.kit.nildumu.util.Pair;
  */
 public class IOValues {
 
-    public static class MultipleLevelsPerValue extends NildumuError {
-        MultipleLevelsPerValue(Value value){
+    public static class MultipleLevelsPerValueException extends NildumuException {
+        MultipleLevelsPerValueException(Value value){
             super(String.format("Multiple security levels per value are not supported, attempted it for value %s", value));
         }
     }
@@ -50,7 +50,7 @@ public class IOValues {
 
     public void add(Sec<?> sec, Value value){
         if (contains(value) && !getSec(value).equals(sec)){
-            throw new MultipleLevelsPerValue(value);
+            throw new MultipleLevelsPerValueException(value);
         }
         valuesPerSec.get(sec).add(value);
         value.forEach(b -> {
