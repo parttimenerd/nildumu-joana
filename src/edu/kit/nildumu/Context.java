@@ -58,9 +58,9 @@ import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.SecurityLattice;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.Lattices.ValueLattice;
-import edu.kit.nildumu.MethodInvocationHandler.CallSite;
-import edu.kit.nildumu.MethodInvocationHandler.NodeBasedCallSite;
 import edu.kit.nildumu.Program.NextBlockFilter;
+import edu.kit.nildumu.interproc.CallSite;
+import edu.kit.nildumu.interproc.MethodInvocationHandler;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuException;
@@ -790,7 +790,7 @@ public class Context {
 		assert callSite.kind == Kind.CALL;
 		List<Value> args = opArgs(callSite, this::nodeValueRec,program.getParamNodes(callSite));
 		return methodInvocationHandler.analyze(this, 
-				new NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
+				new CallSite.NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
 	}
 	
 	/**

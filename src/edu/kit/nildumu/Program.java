@@ -55,6 +55,7 @@ import edu.kit.joana.wala.core.SDGBuilder;
 import edu.kit.nildumu.Lattices.B;
 import edu.kit.nildumu.Lattices.Sec;
 import edu.kit.nildumu.Lattices.Value;
+import edu.kit.nildumu.interproc.MethodInvocationHandler;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.ui.Config;
 import edu.kit.nildumu.ui.EntryPoint;

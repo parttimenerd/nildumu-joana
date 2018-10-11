@@ -49,7 +49,7 @@ public class DotRegistry {
     /**
      * A dot file with a name and a topic
      */
-    public static class DotFile implements Comparable<DotFile> {
+    private static class DotFile implements Comparable<DotFile> {
 
         public final String topic;
         public final String name;

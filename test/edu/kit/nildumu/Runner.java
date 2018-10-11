@@ -19,6 +19,7 @@ import edu.kit.nildumu.annotations.Expect;
 import edu.kit.nildumu.annotations.MethodInvocationHandlersToUse;
 import edu.kit.nildumu.annotations.NildumuTest;
 import edu.kit.nildumu.annotations.ShouldLeak;
+import edu.kit.nildumu.interproc.MethodInvocationHandler;
 import edu.kit.nildumu.ui.EntryPoint;
 
 /**

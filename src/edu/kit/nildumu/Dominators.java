@@ -137,6 +137,10 @@ public class Dominators<T> {
 		public boolean equals(Object obj) {
 			return obj.getClass() == Node.class && ((elem == null && ((Node<T>)obj).elem == null) || (((Node<T>)obj).elem != null && ((Node<T>)obj).elem.equals(elem)));
 		}
+
+		public boolean isEntryNode() {
+			return isEntryNode;
+		}
         
     }
     
@@ -382,5 +386,9 @@ public class Dominators<T> {
 	public List<T> getElementsInTopologicalOrder(){
 		return topOrder().stream().map(Node::getElem).filter(Objects::nonNull)
 				.collect(Collectors.toList());
+	}
+	
+	public Node<T> getNodeForElement(T elem) {
+		return elemToNode.get(elem);
 	}
 }
