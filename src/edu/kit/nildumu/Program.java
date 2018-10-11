@@ -12,15 +12,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -63,6 +60,7 @@ import edu.kit.nildumu.ui.Config;
 import edu.kit.nildumu.ui.EntryPoint;
 import edu.kit.nildumu.ui.OutputMethod;
 import edu.kit.nildumu.util.NildumuException;
+import edu.kit.nildumu.util.StablePriorityQueue;
 import edu.kit.nildumu.util.Util;
 import edu.kit.nildumu.util.Util.Box;
 
@@ -70,85 +68,6 @@ import edu.kit.nildumu.util.Util.Box;
  * Contains all static information on the program and helper methods
  */
 public class Program {
-	
-	/**
-	 * Combines a method with its entry and some helper methods
-	 */
-	public static class Method {
-		public final Program program;
-		public final SDGMethod method;
-		public final SDGNode entry;
-		private final Supplier<Dominators<ISSABasicBlock>> domSupplier;
-		public final IR ir;
-		
-		/**
-		 * Dominators and loop headers for the cfg
-		 */
-		private Dominators<ISSABasicBlock> doms;
-		
-		public Method(Program program, SDGMethod method, SDGNode entry, Supplier<Dominators<ISSABasicBlock>> domSupplier) {
-			this.program = program;
-			this.method = method;
-			this.entry = entry;
-			this.domSupplier = domSupplier;
-			this.doms = null;
-			this.ir = program.getProcIR(entry);
-		}
-		
-		@Override
-		public String toString() {
-			return toBCString();
-		}
-		
-		public boolean isOutputMethod() {
-			return classForType(method.getSignature().getDeclaringType()).get().equals(CodeUI.class);
-		}
-		
-		public boolean isMainMethod() {
-			return method.getSignature().getMethodName().equals(DEFAULT_MAIN_METHOD_NAME);
-		}
-		
-		public String toBCString() {
-			return method.getSignature().toBCString();
-		}
-		
-		public boolean hasReturnValue() {
-			return method.getSignature().getReturnType() != null && !method.getSignature().getReturnType().toHRString().equals("void");
-		}
-		
-		public List<SDGFormalParameter> getParameters(){
-			return method.getParameters().stream().sorted(Comparator.comparingInt(SDGFormalParameter::getIndex)).collect(Collectors.toList());
-		}
-		
-		public int getLoopDepth(SDGNode node) {
-			return getDoms().loopDepth(program.getBlock(node));
-		}
-		
-		public Dominators<ISSABasicBlock> getDoms(){
-			if (doms == null) {
-				doms = domSupplier.get();
-				this.doms.registerDotGraph("cfg", method.getSignature().toStringHRShort(), 
-						b -> {
-							List<String> strs = new ArrayList<>();
-							Stream.of(b.getFirstInstructionIndex(), b.getLastInstructionIndex())
-								.filter(i -> i > 0).map(i -> ir.getInstructions()[i])
-								.filter(Objects::nonNull)
-								.forEach(instr -> strs.add(instr.toString()));
-							strs.add(b.getNumber() + "");
-							return strs.stream().collect(Collectors.joining("|"));
-						});
-			}
-			return doms;
-		}
-	}
-
-	public static class MainMethod extends Method {
-
-		public MainMethod(Method method) {
-			super(method.program, method.method, method.entry, method.domSupplier);
-		}
-		
-	}
 	
 	public static class UnsupportedType extends NildumuException {
 		public UnsupportedType(JavaType type) {
@@ -169,8 +88,6 @@ public class Program {
 	
 	public final SDG sdg;
 	
-	public final MainMethod main;
-	
 	public final IStaticLattice<String> lattice;
 	
 	public final BiMap<SDGNode, Method> entryToMethod;
@@ -178,6 +95,8 @@ public class Program {
 	public final BiMap<String, Method> bcNameToMethod;
 	
 	public final int intWidth;
+	
+	public final Method main;
 	
 	public final Context context;
 	
@@ -198,13 +117,13 @@ public class Program {
 								).findFirst().get(), n, () -> calculateCFGDoms(n))
 				)));
 		this.bcNameToMethod = HashBiMap.create(entryToMethod.values().stream().collect(Collectors.toMap(m -> m.toBCString(), m -> m)));
-		this.main = new MainMethod(entryToMethod.values().stream().filter(m -> {
+		this.main = entryToMethod.values().stream().filter(m -> {
 			if (mainMethod == null) {
-				return m.isMainMethod();
+				return m.method.getSignature().getMethodName().equals(Program.DEFAULT_MAIN_METHOD_NAME);
 			} else {
 				return getJavaMethodForSignatureIfPossible(m.method.getSignature()).map(mainMethod::equals).orElse(false);
 			}
-		}).findFirst().get());
+		}).findFirst().get();
 		java.lang.reflect.Method mMethod = getJavaMethodForSignature(main.method.getSignature());
 		lattice = ana.getLattice();
 		Config defaultConfig = null;
@@ -234,6 +153,7 @@ public class Program {
 				} else {
 					val = createUnknownValue(bitWidth);
 				}
+				val.description(param.getName());
 				Sec<?> sec = ap.getFirst().level() == null ? context.sl.top() : context.sl.parse(ap.getFirst().level());
 				context.setParamValue(p.getIndex(), val);
 				context.addInputValue(sec, val);
@@ -260,9 +180,9 @@ public class Program {
 		return bitWidth;
 	}
 	
-	private Dominators<ISSABasicBlock> calculateCFGDoms(SDGNode entry){
+	private BasicBlockGraph calculateCFGDoms(SDGNode entry){
 		SSACFG cfg = getProcIR(entry).getControlFlowGraph();
-		return new Dominators<>(cfg.entry(), b -> Util.toList(cfg.getSuccNodes(b)));
+		return new BasicBlockGraph(this, cfg);
 	}
 	
 	private void check() {
@@ -328,43 +248,162 @@ public class Program {
 		return getProgram().getSDG();
 	}
 	
-	public void tryRun(SDGNode entryNode) {
-		workList(entryNode, n -> {
-			System.out.println(n.getLabel());
-			return false;
-		}, n -> false);
+	public Stream<SDGNode> getDataDependencies(SDGNode node){
+		return sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP)
+				.stream().map(SDGEdge::getSource);
 	}
 	
+	/**
+	 * Handles actual nodes of method calls: returns the method call site for it
+	 */
+	public Stream<SDGNode> getDataDependenciesWC(SDGNode node){
+		return sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP)
+				.stream().map(SDGEdge::getSource).map(n -> {
+					if (n.kind == Kind.ACTUAL_OUT && !n.getLabel().equals("ret _exception_")) {
+						return sdg.getIncomingEdgesOfKind(n, SDGEdge.Kind.CONTROL_DEP_EXPR)
+								.iterator().next().getSource();
+					}
+					return n;
+				});
+	}
+	
+	private boolean filterUninterestingNodes(SDGNode n) {
+		return 	Arrays.asList(Kind.NORMAL, Kind.EXPRESSION, Kind.PREDICATE, Kind.CALL).contains(n.kind)
+				&& !n.getLabel().endsWith("_exception_")
+				&& !Arrays.asList("CALL_RET").contains(n.getLabel())
+				&& !n.getLabel().equals("many2many");
+	}
+	
+	public static interface NextBlockFilter extends Predicate<ISSABasicBlock> {
+		public void clear();
+	}
+	
+	/**
+	 * Adaptive workList algorithm
+	 */
 	public void workList(SDGNode entryNode, 
-			Predicate<SDGNode> nodeConsumer,
-			Predicate<SDGNode> ignore) {
-		Predicate<SDGNode> filter = n -> Arrays.asList(Kind.NORMAL, Kind.EXPRESSION, Kind.PREDICATE, Kind.CALL).contains(n.kind)
-				&& !n.getLabel().endsWith("_exception_") && !Arrays.asList("CALL_RET").contains(n.getLabel());
+			NodeEvaluator nodeEvaluator,
+			NextBlockFilter nextBlockFilter) {
 		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
 
+		// order inside of blocks
 		List<SDGNode> topOrder = topOrder(entryNode);
 		Map<SDGNode, Integer> topOrderIndex = 
 				IntStream.range(0, topOrder.size()).boxed().collect(Collectors.toMap(topOrder::get, Function.identity()));
 		
 		//Queue<SDGNode> q = new ArrayDeque<>();
 		Method method = method(entryNode);
-		PriorityQueue<SDGNode> q =
-				new PriorityQueue<>((a, b) -> ComparisonChain.start()
-						.compare(-method.getLoopDepth(a), -method.getLoopDepth(b))
-						.compare(topOrderIndex.get(a), topOrderIndex.get(b)).result());
+		BasicBlockGraph bbg = method.getDoms();
+		
+		List<ISSABasicBlock> blockTopOrder = bbg.getElementsInTopologicalOrder();
+		Map<ISSABasicBlock, Integer> blockTopOrderIndex = 
+				IntStream.range(0, blockTopOrder.size()).boxed().collect(Collectors.toMap(blockTopOrder::get, Function.identity()));
 
-		//topOrder(entryNode).forEach(q::offer);
-		topOrder(entryNode).stream().filter((Predicate<? super SDGNode>) filter).forEach(q::add);
-		while (!q.isEmpty()) {
-			SDGNode cur = q.poll();
-			if (ignore.test(cur)) {
-				continue;
+		System.err.println("Blocks in top order: " + blockTopOrder.stream().map(ISSABasicBlock::getNumber).map(Object::toString).collect(Collectors.joining(" → ")));
+		
+		// gather the nodes per block
+		Map<ISSABasicBlock, Set<SDGNode>> nodesPerBlock = 
+				procNodes.stream().filter(this::filterUninterestingNodes).collect(Collectors.groupingBy(this::getBlock,
+				Collectors.toSet()));
+		
+		// gather the nodes per block that only data depend on out-of block nodes
+		Map<ISSABasicBlock, Set<SDGNode>> outOfBlockNodesPerBlock =
+				nodesPerBlock.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,
+						e -> {
+							return e.getValue().stream()
+									.filter(n -> getDataDependencies(n)
+											.allMatch(dn -> {
+												ISSABasicBlock dnBlock = getBlock(dn);
+												return dnBlock == null || dnBlock.getNumber() != e.getKey().getNumber() || dn == n;
+											}))
+								
+									.collect(Collectors.toSet());
+				}));
+		
+		// for each node n: nodes that n data depends on and which have an altered value
+		//    compared to the time of the last evaluation of n
+		// the entry for each node is cleared between checking and evaluating a node
+		// the map contains at the beginning for each node all its data dependencies
+		Map<SDGNode, Set<SDGNode>> nodesWithNewEvaluationPerNode = 
+				topOrder.stream().collect(Collectors.toMap(n -> n, 
+						n -> new HashSet<>(getDataDependenciesWC(n).collect(Collectors.toSet()))));
+		
+		Set<SDGNode> nodesEvaluatedOnce = new HashSet<>();
+		
+		// blocks ordered by their loop depth
+		// → higher priority to inner loop nodes
+		StablePriorityQueue<ISSABasicBlock> blockQueue = 
+				new StablePriorityQueue<>((a, b) -> {
+					System.err.println(a);
+					assert blockTopOrderIndex.containsKey(a);
+					return ComparisonChain.start().compare(-method.getLoopDepth(a), -method.getLoopDepth(b))
+					.compare(blockTopOrderIndex.get(a), blockTopOrderIndex.get(b)).result();
+					});
+		
+		// we start at the root block
+		blockQueue.add(bbg.getRootElem());
+		
+		while (!blockQueue.isEmpty()) {
+			// we get a new block
+			ISSABasicBlock curBlock = blockQueue.poll();
+			
+			System.err.println("Started with block " + curBlock.getNumber());
+			System.err.println("----------------------------");
+			
+			// did something change during the evaluation of the block
+			boolean somethingChanged = false;
+			
+			Set<SDGNode> nodes = nodesPerBlock.getOrDefault(curBlock, Collections.emptySet());
+			
+			// now we gather all nodes that belong to this block and do not depend data depend on
+			// nodes in this block and put them into a queue			
+			PriorityQueue<SDGNode> nodeQueue = new PriorityQueue<>(Comparator.comparingInt(topOrderIndex::get));
+			nodeQueue.addAll(outOfBlockNodesPerBlock.getOrDefault(curBlock, Collections.emptySet()));
+			
+			// the inner block graph could be cyclic (loops)
+			Set<SDGNode> alreadyVisited = new HashSet<>();
+			
+			// now a walk through these nodes in topological order
+			
+			while (!nodeQueue.isEmpty()) {
+				SDGNode curNode = nodeQueue.poll();
+				if (alreadyVisited.contains(curNode)) {
+					continue;
+				}
+				alreadyVisited.add(curNode);
+				// a node is evaluated if either
+				//   the node was not evaluated any time before in this method
+				//   or the node is data dependent on a node that changed its value since
+				//     the last evaluation
+				if (!nodesEvaluatedOnce.contains(curNode) ||
+						nodesWithNewEvaluationPerNode.get(curNode).size() > 0) {
+					boolean evalChanged = nodeEvaluator.evaluate(curNode) || !nodesEvaluatedOnce.contains(curNode);
+					// no node changed its value, besides possibly the node itself
+					nodesWithNewEvaluationPerNode.get(curNode).clear();
+					if (evalChanged) {
+						// tell the nodes that data depend on it, that its value changed
+						sdg.getOutgoingEdgesOfKind(curNode, SDGEdge.Kind.DATA_DEP).stream()
+							.map(SDGEdge::getTarget)
+							.map(nodesWithNewEvaluationPerNode::get)
+							.forEach(s -> s.add(curNode));
+						// add all nodes to the queue that depend on this node and belong to the
+						// current block
+						sdg.getOutgoingEdgesOfKind(curNode, SDGEdge.Kind.DATA_DEP)
+							.stream()
+							.map(SDGEdge::getTarget)
+							.filter(nodes::contains)
+							.forEach(nodeQueue::offer);
+					}
+					nodesEvaluatedOnce.add(curNode);
+					somethingChanged = somethingChanged || evalChanged;
+				}
 			}
-			if (nodeConsumer.test(cur)) {
-				getSDG().outgoingEdgesOf(cur).stream()
-					.map(e -> e.getTarget()).filter((Predicate<? super SDGNode>) filter)
-					.filter(procNodes::contains)
-					.forEach(q::offer);
+			
+			// the current block is now evaluated fully
+			// we now go back to the fix point iteration 
+			if (somethingChanged || nodes.isEmpty()) {
+				bbg.getNextElems(curBlock).stream().filter(nextBlockFilter).forEach(blockQueue::offer);
+				nextBlockFilter.clear();
 			}
 		}
 	}
@@ -374,6 +413,7 @@ public class Program {
 	 * https://en.wikipedia.org/wiki/Topological_sorting
 	 */
 	public List<SDGNode> topOrder(SDGNode entryNode){
+		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
 		Set<SDGNode> unmarked = new HashSet<>(getSDG().getNodesOfProcedure(entryNode));
 		List<SDGNode> l = new ArrayList<>();
 		Box<Consumer<SDGNode>> visit = new Box<>(null);
@@ -384,15 +424,26 @@ public class Program {
 			unmarked.remove(n);
 			getSDG().outgoingEdgesOf(n).stream()
 				.map(SDGEdge::getTarget)
-				.filter(getSDG().getNodesOfProcedure(entryNode)::contains)
+				.filter(procNodes::contains)
 				.forEach(visit.val::accept);
 			l.add(n);
 		};
 		while (!unmarked.isEmpty()) {
 			visit.val.accept(Util.get(unmarked));
 		}
+		print("top order before reversal", l);
 		Collections.reverse(l);
+		print("top order", l);
 		return l;
+	}
+	
+	private void print(String header, List<SDGNode> nodes) {
+		System.out.print(header + "\n------\n");
+		nodes.stream().filter(this::filterUninterestingNodes).forEach(n -> {
+			if (getBlock(n) != null) {
+				System.out.printf("\t%2d|%s\n", getBlock(n).getNumber(), toString(n));
+			}
+		});
 	}
 	
 	public Method method(SDGNode entry) {
@@ -455,8 +506,21 @@ public class Program {
 		return getJavaMethodForSignature(parseSignature(((SSAInvokeInstruction)getInstruction(callSite)).getDeclaredTarget().getSignature()));
 	}
 	
-	public void tryWorkListRun(SDGNode entryNode) {
-		workList(entryNode, Program::print, n -> false); 
+	public void trialWorkListRun(SDGNode entryNode) {
+		workList(entryNode, n -> {
+			System.out.printf("%s:Block %d\n", toString(n), getBlock(n).getNumber());
+			return false;
+		}, new NextBlockFilter() {
+			
+			@Override
+			public boolean test(ISSABasicBlock t) {
+				return false;
+			}
+			
+			@Override
+			public void clear() {
+			}
+		}); 
 	}
 	
 	public static String toString(SDGNode node) {
@@ -471,23 +535,16 @@ public class Program {
 		return false;
 	}
 	
-	public List<SDGNode> getParamNodes(SDGNode callSite){
+	List<SDGNode> getParamNodes(SDGNode callSite){
 		assert callSite.kind == Kind.CALL;
 		Method method = getMethodForCallSite(callSite);
 		if (method != null) {
 			
 		}
 		// HACK, parse label (is okay)
-		return sdg.getAllActualInsForCallSiteOf(callSite).stream().sorted(Comparator.comparing(SDGNode::getLabel)).collect(Collectors.toList());
-	}
-	
-	/**
-	 * Constants in labels start with {@code #(} and end with {@code )}
-	 * @param label
-	 * @return
-	 */
-	public String getConstantInLabel(String label) {
-		return label.split("#")[1].substring(1).split("\\)")[0];
+		return sdg.getAllActualInsForCallSiteOf(callSite).stream()
+				.sorted(Comparator.comparing(n -> Integer.parseInt(n.getLabel().split(" ")[1])))
+				.collect(Collectors.toList());
 	}
 	
 	Value createUnknownValue(int width){
@@ -575,5 +632,9 @@ public class Program {
 	public Context analyze() {
 		context.fixPointIteration(main.entry);
 		return context;
+	}
+	
+	public SDGNode getSDGNodeForInstr(SDGNode base, SSAInstruction instr) {
+		return sdg.getNode(getPDG(base).getNode(instr).getId());
 	}
 }

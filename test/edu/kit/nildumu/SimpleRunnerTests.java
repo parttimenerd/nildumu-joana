@@ -22,7 +22,7 @@ public class SimpleRunnerTests {
 	@ParameterizedTest
 	@MethodSource("simpleTestsSupplier")
 	void test(TestCase testCase, String handlerProp) {
-		Runner.test(testCase, handlerProp);
+		Runner.test(testCase, handlerProp, false);
 	}
 	
 	public static Stream<Arguments> simpleTestsSupplier2(){
@@ -32,10 +32,10 @@ public class SimpleRunnerTests {
 	@ParameterizedTest
 	@MethodSource("simpleTestsSupplier2")
 	void test2(TestCase testCase, String handlerProp) {
-		Runner.test(testCase, handlerProp);
+		Runner.test(testCase, handlerProp, true);
 	}
 	
 	public static void main(String[] args) {
-		Runner.testCases(SimpleTestBed.class).forEach(a -> Runner.test((TestCase)a.get()[0], (String)a.get()[1]));
+		Runner.testCases(SimpleTestBed.class).forEach(a -> Runner.test((TestCase)a.get()[0], (String)a.get()[1], false));
 	}
 }

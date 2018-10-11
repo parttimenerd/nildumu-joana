@@ -14,8 +14,8 @@ import edu.kit.nildumu.ui.Value;
 public class SimpleTestBed2 {
 
 	public static void main(String[] args) {
-		simpleAdd(10);
-//		simple2(10);
+//		simpleAdd(10);
+		simple2(10);
 //		simple3(10, 10);
 //		simple4(10, 10);
 //		simpleIf(true);
@@ -29,10 +29,91 @@ public class SimpleTestBed2 {
 		basicFib(10);
 		basicFibReduced(10);
 		basicDepsOnFunction(10);
-		weirdLoopFunctionTermination(true, true);
+		weirdLoopFunctionTermination(10, 10);
 //		nestedFunctionCalls(10);
 //		nestedFunctionCalls2(10);
 //		conditionalRecursion(10);
+		test(10, 10);
+		test2(10, 10);
+		simpleIfWithFuncCall(10);
+		testBasicLoopNested(10, true);
+		basicFibConst();
+	}
+	
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=2)
+	public static void test(@Source int h1, @Source int h2) {
+		int r = 0;
+		int o = 0;
+		if (h1 == 0) {
+			o = 1;
+			if (h2 == 1) {
+				r = h1;
+			} else {
+				r = 0;
+			}
+		}
+		leak(r);
+		leak(o);
+	}
+	
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=2)
+	public static void testIfChain2(@Source int h1, @Source int h2) {
+		int r = 0;
+		int o = 0;
+		if (h1 == 0) {
+			o = 1;
+			if (h2 == 1) {
+				r = h1;
+			} else {
+				r = 0;
+			}
+		}
+		leak(r);
+		leak(o);
+	}
+	
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=1)
+	public static void testSimpleIfChain(@Source int h1, @Source int h2) {
+		int r = 0;
+		int o = 0;
+		if (h1 == 0) {
+			o = 1;
+			if (h1 == 1) {
+				r = 1;
+			} else {
+				r = 0;
+			}
+		}
+		leak(r);
+		leak(o);
+	}
+	
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=2)
+	public static void test2(@Source int h1, @Source int h2) {
+		int r = 0;
+		if (h1 == 0) {
+			r = h2;
+		}
+		leak(r);
+	}
+	
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=0)
+	public static void test3(@Source int h1, @Source int h2) {
+		int r = 0;
+		if (h1 == 0) {
+			r = h1;
+		} else {
+			r = 0;
+		}
+		leak(r);
 	}
 	
 //	@EntryPoint
@@ -43,12 +124,12 @@ public class SimpleTestBed2 {
 		output(h + 1, "l");
 	}
 //	
-//	@EntryPoint
-//	@Config(intWidth=2)
-//	@ShouldLeak(exactly=1)
-//	public static void simple2(@Source int h) {
-//		output(h | 1, "l");
-//	}
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=1)
+	public static void simple2(@Source int h) {
+		output(h | 1, "l");
+	}
 //	
 //	@EntryPoint
 //	@Config(intWidth=2)
@@ -88,13 +169,13 @@ public class SimpleTestBed2 {
 		output(a, "l");
 	}
 //	
-//	@EntryPoint
-//	@Config(intWidth=1)
-//	@ShouldLeak(exactly=1)
+	//@EntryPoint
+	@Config(intWidth=1)
+	@ShouldLeak(exactly=1)
 	public static void whileLoop(@Source int h) {
 		int o = 0;
-		while (h > 0) {
-			o++;
+		while (h != 0) {
+			o = o | 1;
 		}
 		leak(o);
 	}
@@ -139,10 +220,10 @@ public class SimpleTestBed2 {
 //		return a | b;
 //	}
 //	
-//	@EntryPoint
-//	@Config(intWidth=2)
-//	@MethodInvocationHandlersToUse("summary")
-//	@ShouldLeak(exactly=2, bits="0buu")
+	//@EntryPoint
+	@Config(intWidth=2)
+	@MethodInvocationHandlersToUse("summary")
+	@ShouldLeak(exactly=2, bits="0buu")
 	public static void basicFunctionCalls1(@Source int h) {
 		leak(_1_bla(h));
 	}
@@ -151,24 +232,34 @@ public class SimpleTestBed2 {
 		return a;
 	}
 ////	
-//	@EntryPoint
-//	@Config(intWidth=3)
-//	@MethodInvocationHandlersToUse({"call_string"})
-//	@ShouldLeak(exactly=0)
-	public static void basicFib(@Source @Value("0b0u") int h) {
-		int r = 0;
-		if (1 != fib(2)) {
-			if (1 == fib(h)) {
-				r = fib(h);
-			}
-		}
-		leak(r);
+	//@EntryPoint
+	@Config(intWidth=5)
+	@MethodInvocationHandlersToUse
+	@ShouldLeak(exactly=4)
+	public static void basicFib(@Source @Value("0b0uuuu") int h) {
+		leak(fib(h));
 	}
 	
 	public static int fib(int a) {
 		int r = 1;
-		if (a == 1){
-			r = fib(a);
+		if (a > 1){
+			r = fib(a - 1) + fib(a - 2);
+		}
+		return r;
+	}
+	
+	@EntryPoint
+	@Config(intWidth=5)
+	@MethodInvocationHandlersToUse("handler=call_string;maxrec=2")
+	@ShouldLeak(bits="1")
+	public static void basicFibConst() {
+		leak(__f(1));
+	}
+	
+	public static int __f(int a) {
+		int r = 1;
+		if (a > 1){
+			r = __f(a - 1);
 		}
 		return r;
 	}
@@ -189,6 +280,22 @@ public class SimpleTestBed2 {
 		}
 		return r;
 	}
+	
+	//@EntryPoint
+	@Config(intWidth=5)
+	@MethodInvocationHandlersToUse("all")
+	@ShouldLeak(exactly=4)
+	public static void simpleIfWithFuncCall(@Source @Value("0b0uuuu") int h) {
+		int r = 1;
+		if (h > 1){
+			r = _5_f(h);
+		}
+		leak(r);
+	}
+	
+	public static int _5_f(int a) {
+		return a;
+	}
 //	
 //	@EntryPoint
 //	@Config(intWidth=2)
@@ -203,18 +310,20 @@ public class SimpleTestBed2 {
 	}
 //	
 //	
-	@EntryPoint
-	@MethodInvocationHandlersToUse("all")
-	@ShouldLeak(exactly=1)
-	public static void weirdLoopFunctionTermination(@Source @Value("0bu") boolean h, @Source(level="l") boolean l) {
-	    boolean res = true; 
-		if (l) {
-			res = false;
-	    }
-		leak(id(h));
+	//@EntryPoint
+	@Config(intWidth=3)
+	@MethodInvocationHandlersToUse("handler=all")
+	@ShouldLeak(exactly=1,bits="0b0u")
+	public static void weirdLoopFunctionTermination(@Source @Value("0b0u") int h, @Source(level="l") int l) {
+		int r = 1;
+        while (h != 0){
+            r = _3_bla(h);
+            h = 0;
+        }
+        leak(r);
 	}
 	
-	public static boolean id(boolean a) {
+	public static int _3_bla(int a) {
         return a;
     }
 //	
@@ -279,4 +388,17 @@ public class SimpleTestBed2 {
 //	public static int _4_i2(int a) {
 //		return a;
 //	}
+	
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=1, bits="0buu")
+	public static void testBasicLoopNested(@Source @Value("0b0u") int h, @Source(level="l") @Value("0b0u") boolean l) {
+	    int x = 0; 
+		while (l){
+	        while (l){
+	            x = h;
+	        }
+	     }
+	     leak(x);
+	}
 }

@@ -33,7 +33,6 @@ import edu.kit.nildumu.Dominators.Node;
 import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.Lattices.DependencySet;
 import edu.kit.nildumu.Lattices.Value;
-import edu.kit.nildumu.Program.Method;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
@@ -301,6 +300,7 @@ public abstract class MethodInvocationHandler {
         @Override
         public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
             Method method = callSite.method;
+            System.err.printf("                Arguments for rec depth %d: %s\n", methodCallCounter.get(method), arguments);
             if (methodCallCounter.get(method) < maxRec) {
                 methodCallCounter.put(method, methodCallCounter.get(method) + 1);
                 c.pushNewMethodInvocationState(callSite, arguments);
@@ -613,7 +613,6 @@ public abstract class MethodInvocationHandler {
         }
 
         BitGraph methodIteration(Context c, Method method, MethodInvocationHandler handler, List<Value> parameters){
-            c.resetNodeValueStates();
             c.pushNewMethodInvocationState(callSites.get(method), parameters.stream().flatMap(Value::stream).collect(Collectors.toSet()));
             for (int i = 0; i < parameters.size(); i++) {
                 c.setParamValue(i + 1, parameters.get(i));

@@ -159,7 +159,11 @@ public class Builder {
 	
 	private String methodInvocationHandler = "basic";
 	
-	private boolean doCache = false;
+	private boolean doCache = true;
+	
+	public Builder() {
+		DotRegistry.get().disable();
+	}
 	
 	/**
 	 * Set the entry class
@@ -194,7 +198,7 @@ public class Builder {
 	}
 
 	public BuildResult build() throws ClassHierarchyException, UnsoundGraphException, CancelException, IOException {
-		if (cache.containsKey(config.getEntryMethod()) || !doCache) {
+		if (!cache.containsKey(className) || !doCache) {
 			Pair<SDGBuilder, SDGProgram> pair = createSDGProgram(config);
 			IFCAnalysis ana = new IFCAnalysis(pair.second);
 			ana.addAllJavaSourceAnnotations();
@@ -204,12 +208,13 @@ public class Builder {
 				dumpDotGraphs();
 			}
 			if (doCache) {
-				cache.put(config.getEntryMethod(), res);
+				cache.put(className, res);
 			} else {
 				return res;
 			}
 		}
-		return cache.get(config.getEntryMethod());
+		res = cache.get(className);
+		return res;
 	}
 
 	public BuildResult buildOrDie() {
@@ -260,6 +265,7 @@ public class Builder {
 	
 	public Builder enableDumpAfterBuild() {
 		dumpAfterBuild = true;
+		DotRegistry.get().enable();
 		return this;
 	}
 	

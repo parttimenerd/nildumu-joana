@@ -537,6 +537,10 @@ public class Lattices {
 	            }
 	            throw new ParsingException(str, start, String.format("No such bit lattice element '%s'", str.substring(start, start + 1)));
 	        }
+	        
+	        public B parse(boolean val) {
+	        	return val ? ONE : ZERO;
+	        }
 
 	        @Override
 	        public String toString() {
@@ -579,6 +583,11 @@ public class Lattices {
 	                default:
 	                    return this;
 	            }
+	        }
+	        
+	        public boolean toBoolean() {
+	        	assert isConstant();
+	        	return this == ONE;
 	        }
 	    }
 

@@ -7,8 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.ibm.wala.ssa.ISSABasicBlock;
+
 import edu.kit.nildumu.Lattices.BasicSecLattice;
 import edu.kit.nildumu.Lattices.Bit;
+import edu.kit.nildumu.Program.NextBlockFilter;
 import edu.kit.nildumu.prog.Simple;
 import edu.kit.nildumu.util.Util.Box;
 
@@ -23,7 +26,7 @@ class SimpleTest {
 	
 	@Test
 	void testTryWorkListRun() {
-		program.tryRun(program.main.entry);
+		program.trialWorkListRun(program.main.entry);
 	}
 	
 	@Test
@@ -34,7 +37,17 @@ class SimpleTest {
 				visitedOutput.val = true;
 			}
 			return Program.print(n);
-		}, n -> false);
+		}, new NextBlockFilter() {
+			
+			@Override
+			public boolean test(ISSABasicBlock t) {
+				return true;
+			}
+			
+			@Override
+			public void clear() {
+			}
+		});
 		assertAll(
 				() -> assertFalse(visitedOutput.val, "No output call site visited"),
 				() -> assertTrue(program.context.output.hasValuesForSec(BasicSecLattice.LOW),

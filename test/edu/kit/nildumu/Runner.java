@@ -140,13 +140,15 @@ public class Runner {
 		return testCasesToTestClassMIHStream(testCasesForClassAndInnerClasses(baseClass));
 	}
 	
-	public static void test(TestCase testCase, String handlerProp) {
+	public static void test(TestCase testCase, String handlerProp, boolean verbose) {
 		Builder builder = new Builder()
 				.dumpDir("test_dump/" + testCase.klass.getCanonicalName() + "/" + testCase.mainMethod.getName() + "_" + handlerProp)
-				.enableDumpAfterBuild()
 				.methodInvocationHandler(handlerProp)
 				.entry(testCase.klass)
 				.entryMethod(testCase.mainMethod);
+		if (verbose) {
+			builder.enableDumpAfterBuild();
+		}
 		Program program = builder.buildProgramOrDie();
 		testCase.testContext(program.analyze());
 	}

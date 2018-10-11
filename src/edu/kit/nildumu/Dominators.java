@@ -14,11 +14,13 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -28,6 +30,7 @@ import com.google.common.html.HtmlEscapers;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.TriConsumer;
+import edu.kit.nildumu.util.Util;
 import edu.kit.nildumu.util.Util.Box;
 import guru.nidi.graphviz.attribute.Attributes;
 import guru.nidi.graphviz.attribute.RankDir;
@@ -146,18 +149,18 @@ public class Dominators<T> {
      * Contains the previous loop headers of every node that has one
      */
     final Map<Node<T>, Node<T>> loopHeaderPerNode;
-    final Node<T> startNode;
+    final Node<T> rootNode;
 
-    public Dominators(T startElem, Function<T, Collection<T>> outs) {
+    public Dominators(T rootElem, Function<T, Collection<T>> outs) {
         this.entryNode =
                 new Node<T>(null,
                         new HashSet<>(),
                         Collections.emptySet(),
                         true);
-		this.outs = e -> e == null ? set(startElem) : outs.apply(e);
+		this.outs = e -> e == null ? set(rootElem) : outs.apply(e);
         this.elemToNode =
                 Stream.concat(
-                		Stream.concat(Stream.of(startElem), transitiveHull(startElem, outs).stream()).map(Node<T>::new),
+                		Stream.concat(Stream.of(rootElem), transitiveHull(rootElem, outs).stream()).map(Node<T>::new),
                 		Stream.of(entryNode))
                         .collect(Collectors.toMap(n -> n.elem, n -> n));
         elemToNode
@@ -167,7 +170,7 @@ public class Dominators<T> {
                             this.outs.apply(e.getKey())
                                     .forEach(m -> e.getValue().addOut(elemToNode.get(m)));
                         });
-        startNode = elemToNode.get(startElem);
+        rootNode = elemToNode.get(rootElem);
         dominators = dominators(entryNode);
         Pair<Map<Node<T>, Integer>, Map<Node<T>, Node<T>>> p = calcLoopDepthAndHeaders(entryNode, dominators);
         loopDepths = p.first;
@@ -205,7 +208,7 @@ public class Dominators<T> {
             Function<Node<T>, R> bot,
             Function<Node<T>, Set<Node<T>>> next,
             Map<Node<T>, R> state) {
-        return worklist(startNode, action, bot, next, loopDepths::get, state);
+        return worklist(rootNode, action, bot, next, loopDepths::get, state);
     }
 
     public Set<T> dominators(T elem){
@@ -303,9 +306,9 @@ public class Dominators<T> {
     /**
      * Basic extendable worklist algorithm implementation
      *
-     * @param mainNode node to start (only methods that this node transitively calls, are considered)
+     * @param mainNode node to root (only methods that this node transitively calls, are considered)
      * @param action transfer function
-     * @param bot start element creator
+     * @param bot root element creator
      * @param next next nodes for current node
      * @param priority priority of each node, usable for an inner loop optimization of the iteration
      *     order
@@ -334,4 +337,50 @@ public class Dominators<T> {
         }
         return state;
     }
+    
+    /**
+     * Returns the root element
+     */
+    public T getRootElem() {
+    	return rootNode.elem;
+    }
+    
+    public Set<T> getElements(){
+    	return elemToNode.keySet().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+    }
+    
+    /**
+     * Returns the elements that the passed element has an edge to
+     */
+    public Collection<T> getNextElems(T elem){
+    	return outs.apply(elem);
+    }
+    
+	/**
+	 * Based on the depth-first algorithm (ignores cycles): 
+	 * https://en.wikipedia.org/wiki/Topological_sorting
+	 */
+	private List<Node<T>> topOrder(){
+		Set<Node<T>> unmarked = new HashSet<>(elemToNode.values());
+		List<Node<T>> l = new ArrayList<>();
+		Box<Consumer<Node<T>>> visit = new Box<>(null);
+		visit.val = n -> {
+			if (!unmarked.contains(n)) {
+				return;
+			}
+			unmarked.remove(n);
+			n.outs.forEach(visit.val::accept);
+			l.add(n);
+		};
+		while (!unmarked.isEmpty()) {
+			visit.val.accept(Util.get(unmarked));
+		}
+		Collections.reverse(l);
+		return l;
+	}
+	
+	public List<T> getElementsInTopologicalOrder(){
+		return topOrder().stream().map(Node::getElem).filter(Objects::nonNull)
+				.collect(Collectors.toList());
+	}
 }

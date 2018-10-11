@@ -15,16 +15,17 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction;
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction.IOperator;
@@ -59,6 +60,7 @@ import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.Lattices.ValueLattice;
 import edu.kit.nildumu.MethodInvocationHandler.CallSite;
 import edu.kit.nildumu.MethodInvocationHandler.NodeBasedCallSite;
+import edu.kit.nildumu.Program.NextBlockFilter;
 import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuException;
@@ -179,19 +181,28 @@ public class Context {
         }, FORBID_DELETIONS);
 
         final CallPath path;
+        
+        final Method method;
+        
+        final Map<AffectingConditional, Mods> modsMap = new HashMap<>();
 
-        private NodeValueState(CallPath path) {
+        private NodeValueState(CallPath path, Method method) {
             this.path = path;
+            this.method = method;
         }
     }
     
 
-    private final DefaultMap<CallPath, NodeValueState> nodeValueStates = new DefaultMap<>((map, path) -> new NodeValueState(path));
+    private final Map<CallPath, NodeValueState> nodeValueStates = new HashMap<>();
 
     private CallPath currentCallPath = new CallPath();
 
-    private NodeValueState nodeValueState = nodeValueStates.get(currentCallPath);
+    private NodeValueState nodeValueState;
 
+    private final DefaultMap<Bit, ModsCreator> replMap = new DefaultMap<>((map, bit) -> {
+    	return ((c, b, a) -> choose(b, a) == a ? new Mods(b, a) : Mods.empty());
+    });
+    
     /*-------------------------- loop mode specific -------------------------------*/
 
     private final HashMap<Bit, Integer> weightMap = new HashMap<>();
@@ -212,6 +223,8 @@ public class Context {
         this.variableStates.push(new State());
         ValueLattice.get().bitWidth = maxBitWidth;
         this.program = program;
+        nodeValueStates.put(currentCallPath, new NodeValueState(currentCallPath, program.main));
+        nodeValueState = nodeValueStates.get(currentCallPath);
     }
 
     public static B v(Bit bit) {
@@ -290,34 +303,49 @@ public class Context {
         return operatorForNode(node).compute(this, node, arguments);
     }
 
-    private List<Value> opArgs(SDGNode node){
-    	System.err.println(node.getLabel());
+    private List<Value> opArgs(SDGNode node, Function<SDGNode, Value> nodeToValue, List<SDGNode> directParamNodes){
     	SSAInstruction instr = program.getInstruction(node);
     	if (instr == null) {
     		return Collections.emptyList();
     	}
+    	List<AffectingConditional> affectingConds = instr instanceof SSAPhiInstruction ? 
+    			affectingConds = nodeValueState.method.getDoms().getPhiOperandAffectingConditionals(node) : null;
     	SymbolTable st = program.getProcSymbolTable(node);
-    	List<SDGEdge> edges = program.sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP);
     	Box<Integer> edgeIndex = new Box<>(0); 
-    	return IntStream.range(0, instr.getNumberOfUses()).map(instr::getUse).mapToObj(i -> {
-    		if (st.isConstant(i)) {
-    			Object val = ((ConstantValue)st.getValue(i)).getValue();
-    			if (st.isNumberConstant(i)) {
+    	return IntStream.range(0, instr.getNumberOfUses()).mapToObj(i -> {
+    		int use = instr.getUse(i);
+    		if (st.isConstant(use)) {
+    			Object val = ((ConstantValue)st.getValue(use)).getValue();
+    			if (st.isNumberConstant(use)) {
     				return vl.parse(((Number)val).intValue());
     			}
-    			if (st.isBooleanConstant(i)) {
+    			if (st.isBooleanConstant(use)) {
     				return vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
     			}
     			throw new NildumuException(String.format("Unsupported constant type %s", val.getClass()));
     		}
-    		if (st.isParameter(i)) {
-    			return getParamValue(node, i);
+    		Value val = null;
+    		if (st.isParameter(use)) {
+    			val = getParamValue(node, use);
+    		} else {
+    			val = nodeToValue.apply(directParamNodes.get(edgeIndex.val));
     		}
-    		return nodeValue(edges.get(edgeIndex.val++).getSource());
+    		edgeIndex.val++;
+    		if (affectingConds != null) {
+    			val = replace(Optional.of(affectingConds.get(i)), val);
+    		}
+    		return val;
     	}).collect(Collectors.toList());
     }
-
+    
+    private List<Value> opArgs(SDGNode node){
+    	return opArgs(node, this::nodeValue,
+    			program.sdg.getIncomingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP).stream()
+    			.map(SDGEdge::getSource).collect(Collectors.toList()));
+    }
+   
     boolean evaluate(SDGNode node){
+    	System.err.println(node.getLabel());
     	final SDGNode resNode;
     	if (node.kind == Kind.CALL) {
     		PDGNode pdgNode = program.getPDG(node).getReturnOut(program.getPDG(node).getNodeWithId(node.getId()));
@@ -455,6 +483,8 @@ public class Context {
         }).mapToInt(b -> c1(b, alreadyVisitedBits)).sum();
     }
 
+    /* -------------------------- extended mode specific -------------------------------*/
+    
     public Bit choose(Bit a, Bit b){
         if (c1(a) <= c1(b) || a.isConstant()){
             return a;
@@ -468,7 +498,63 @@ public class Context {
         }
         return b;
     }
+    
+    public Bit replace(Optional<AffectingConditional> cond, Bit bit){
+        if (cond.isPresent()) {
+        	if (nodeValueState.modsMap.getOrDefault(cond.get(), Mods.empty()).definedFor(bit)) {
+        		return nodeValueState.modsMap.get(cond.get()).replace(bit);
+        	}
+        	return replace(nodeValueState.method.getDoms().getAffectingConditional(cond.get().conditional), bit);
+        }
+        return bit;
+    }
 
+    public Value replace(Optional<AffectingConditional> cond, Value value) {
+        Box<Boolean> replacedABit = new Box<>(false);
+        Value newValue = value.stream().map(b -> {
+            Bit r = replace(cond, b);
+            if (r != b){
+                replacedABit.val = true;
+            }
+            return r;
+        }).collect(Value.collector());
+        if (replacedABit.val){
+            return newValue;
+        }
+        return value;
+    }
+
+    public void repl(Bit bit, ModsCreator modsCreator){
+        replMap.put(bit, modsCreator);
+    }
+
+    /**
+     * Applies the repl function to get mods
+     * @param bit
+     * @param assumed
+     */
+    public Mods repl(Bit bit, Bit assumed){
+        return repl(bit).apply(this, bit, assumed);
+    }
+
+    public ModsCreator repl(Bit bit){
+        return replMap.get(bit);
+    }
+
+    public void addMods(SDGNode condNode, Bit condBit){
+    	assert condNode.kind == Kind.PREDICATE;
+    	List<B> assumedValues = new ArrayList<>();
+    	if (condBit.isUnknown() || condBit.val() == B.ONE) {
+    		assumedValues.add(B.ONE);
+    	}
+    	for (B assumedValue : Arrays.asList(B.ZERO, B.ONE)) {
+    		if (condBit.isUnknown() || condBit.val() == assumedValue) {
+    			nodeValueState.modsMap.put(new AffectingConditional(condNode, assumedValue == B.ONE), 
+    					repl(condBit).apply(this, condBit, bl.create(assumedValue)));
+    		}
+    	}
+    }
+    
     /* -------------------------- loop mode specific -------------------------------*/
 
     public int weight(Bit bit){
@@ -498,9 +584,16 @@ public class Context {
         int oldDepsCount = o.deps().size();
         o.addDependencies(d(n));
         if (oldDepsCount == o.deps().size() && vt == v(o)){
+        	replMap.remove(n);
             return false;
         }
         o.setVal(vt);
+        repl(o, (c, b, a) -> {
+            Mods oMods = repl(o).apply(c, b, a);
+            Mods nMods = repl(n).apply(c, b, a);
+            return Mods.empty().add(oMods).merge(nMods);
+        });
+        replMap.remove(n);
         return true;
     }
     
@@ -551,13 +644,17 @@ public class Context {
     }
 
     public void pushNewMethodInvocationState(CallSite callSite, List<Value> arguments){
-        pushNewMethodInvocationState(callSite, arguments.stream().flatMap(Value::stream).collect(Collectors.toSet()));
+        pushNewMethodInvocationState(callSite,
+        		arguments.stream().flatMap(Value::stream).collect(Collectors.toSet()));
     }
 
     public void pushNewMethodInvocationState(CallSite callSite, Set<Bit> argumentBits){
         currentCallPath = currentCallPath.push(callSite);
         variableStates.push(new State());
         methodParameterBits.push(argumentBits);
+        if (!nodeValueStates.containsKey(currentCallPath)) {
+        	nodeValueStates.put(currentCallPath, new NodeValueState(currentCallPath, callSite.method));
+        }
         nodeValueState = nodeValueStates.get(currentCallPath);
     }
 
@@ -658,8 +755,18 @@ public class Context {
 		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
     	SymbolTable st = program.getProcSymbolTable(callSite);
 		Value value = null;
-		if (st.isParameter(instr.getUse(0))){
-			value = getParamValue(callSite, instr.getUse(0));
+		int use = instr.getUse(0);
+		if (st.isParameter(use)){
+			value = getParamValue(callSite, use);
+		} else if (st.isConstant(use)) {
+			Object val = ((ConstantValue)st.getValue(use)).getValue();
+			if (st.isNumberConstant(use)) {
+				value = vl.parse(((Number)val).intValue());
+			} else if (st.isBooleanConstant(use)) {
+				value = vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
+			} else {
+				throw new NildumuException(String.format("Unsupported constant type %s", val.getClass()));
+			}
 		} else {
 			value = nodeValueRec(param.get(0));
 		}
@@ -681,44 +788,26 @@ public class Context {
 	
 	private Value evaluateCall(SDGNode callSite) {
 		assert callSite.kind == Kind.CALL;
-		List<SDGNode> param = program.getParamNodes(callSite);
-		SSAInvokeInstruction instr = (SSAInvokeInstruction)program.getInstruction(callSite);
-    	SymbolTable st = program.getProcSymbolTable(callSite);
-		List<Value> args = IntStream.range(0, instr.getNumberOfUses()).mapToObj(use -> {
-			if (st.isConstant(instr.getUse(0))) {
-    			Object val = ((ConstantValue)st.getValue(instr.getUse(0))).getValue();
-    			if (st.isNumberConstant(instr.getUse(0))) {
-    				return vl.parse(((Number)val).intValue());
-    			}
-    			if (st.isBooleanConstant(instr.getUse(0))) {
-    				return vl.parse(((Boolean)val).booleanValue() ? 1 : 0);
-    			}
-    			throw new NildumuException(String.format("Unsupported constant type %s", val.getClass()));
-    		}
-			if (st.isParameter(instr.getUse(0))){
-				return getParamValue(callSite, instr.getUse(0));
-			}
-			return nodeValueRec(param.get(0));
-		}).collect(Collectors.toList());
-		return methodInvocationHandler.analyze(this, new NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
+		List<Value> args = opArgs(callSite, this::nodeValueRec,program.getParamNodes(callSite));
+		return methodInvocationHandler.analyze(this, 
+				new NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
 	}
 	
 	/**
-	 * Extension of  that handles {@link CodeUI#output(int, String)} and {@link CodeUI#leak(int)} calls
+	 * Extension of that handles {@link CodeUI#output(int, String)} and {@link CodeUI#leak(int)} calls
 	 * @param entryNode
 	 * @param nodeConsumer
 	 */
 	public void workList(SDGNode entryNode, Predicate<SDGNode> nodeConsumer,
-			Predicate<SDGNode> ignore) {
+			NextBlockFilter nextBlockFilter) {
 		program.workList(entryNode, n -> {
-			System.err.println("Current wl: " + n.getLabel());
 			if (isOutputCall(n)) {
 				handleOutputCall(n);
 				return false;
 			} else {
 				return nodeConsumer.test(n);
 			}
-		}, ignore);
+		}, nextBlockFilter);
 	}
 	
 	public void registerLeakageGraphs() {
@@ -773,7 +862,11 @@ public class Context {
 					op.val = new Operator() {
 						
 						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
-							return Operator.ADD.compute(c, node, Arrays.asList(Operator.ADD.compute(c, node, Arrays.asList(arguments.get(0), Operator.NOT.compute(c, node, Collections.singletonList(arguments.get(0))))), vl.parse(1)));
+							Value negated = Operator.NOT.compute(c, node, Collections.singletonList(arguments.get(1)));
+							Value addMinusOne = Operator.ADD.compute(c, node, 
+									Arrays.asList(arguments.get(0), negated));
+							return Operator.ADD.compute(c, node, 
+									Arrays.asList(addMinusOne, vl.parse(1)));
 						}
 						
 						@Override
@@ -781,6 +874,7 @@ public class Context {
 							return String.format("(%s - %s)", arguments.get(0), arguments.get(1));
 						}
 					};
+					break;
 				case XOR:
 					op.val = Operator.XOR;
 					break;
@@ -876,8 +970,9 @@ public class Context {
 		
 		private final SDGNode entryNode;
 		private final Map<SDGNode, ISSABasicBlock> omittedBlocks = new HashMap<>();
+		private Set<ISSABasicBlock> omitNextTime = new HashSet<>();
 		private boolean changed = false;
-		private SDGNode node = null;
+		private SDGNode node = null; 
 		
 		private FixpointIteration(SDGNode entryNode) {
 			super();
@@ -886,13 +981,24 @@ public class Context {
 
 		private void run() {
             workList(entryNode, n -> {
-				if (n.getLabel().equals("many2many")) {
+            	if (n.getLabel().equals("many2many")) {
 					return false;
 				}
 				node = n;
 				program.getInstruction(n).visit(this);
 				return changed;
-			}, n -> omittedBlocks.containsValue(program.getBlock(n)));	
+			}, new NextBlockFilter() {
+				
+				@Override
+				public boolean test(ISSABasicBlock b) {
+					return !omitNextTime.contains(b);
+				}
+				
+				@Override
+				public void clear() {
+					omitNextTime.clear();
+				}
+			});	
 		}
 		
 		@Override
@@ -919,10 +1025,8 @@ public class Context {
                 }
                 if (condVal == B.ONE && condVal != B.U) {
                 	omitBlock(node, program.getNextBlock(node));
-               }
-			} else {
-				omitBlock(node, program.blockForId(node, instruction.getTarget()));
-				omitBlock(node, program.getNextBlock(node));
+                }
+                addMods(node, condBit);
 			}
 		}
 		
@@ -939,7 +1043,9 @@ public class Context {
 		public void visitPhi(SSAPhiInstruction instruction) {
 			evaluate(node);
 			program.getControlDeps(node).forEach(n -> {
-				omittedBlocks.remove(n);
+				if (omittedBlocks.containsKey(n)) {
+					omittedBlocks.remove(n);
+				}
 			});
 		}
 		
@@ -962,6 +1068,7 @@ public class Context {
 		private void omitBlock(SDGNode condNode, ISSABasicBlock block) {
 			if (block != null) {
 				omittedBlocks.put(condNode, block);
+				omitNextTime.add(block);
 			}
 		}
 	}
@@ -970,5 +1077,9 @@ public class Context {
 		computeLeakage().forEach((sec, res) -> {
 			System.out.println(String.format("%10s: %d bit", sec, res.maxFlow));
 		}); 
+	}
+	
+	public BasicBlockGraph getCurrentBasicBlockGraph() {
+		return nodeValueState.method.getDoms();
 	}
 }

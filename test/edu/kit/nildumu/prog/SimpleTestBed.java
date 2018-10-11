@@ -34,6 +34,7 @@ public class SimpleTestBed {
 		unreachableLeak(10);
 		testBasicLoop(10);
 		testBasicLoopNested(10, true);
+		simpleIfWithFuncCall(10);
 	}
 	
 	@EntryPoint
@@ -291,7 +292,7 @@ public class SimpleTestBed {
 	@EntryPoint
 	@Config(intWidth=2)
 	@MethodInvocationHandlersToUse({"call_string"})
-	@ShouldLeak(exactly=0)
+	@ShouldLeak(exactly=0,bits="1")
 	public static void unreachableLeak(@Source @Value("0b0u") int h) {
 		int r = 0;
 		if (1 != fib(1)) {
@@ -299,6 +300,22 @@ public class SimpleTestBed {
 				r = fib(h);
 			}
 		}
+		leak(fib(1));
+	}
+	
+	@EntryPoint
+	@Config(intWidth=5)
+	@MethodInvocationHandlersToUse("all")
+	@ShouldLeak(exactly=4)
+	public static void simpleIfWithFuncCall(@Source @Value("0b0uuuu") int h) {
+		int r = 1;
+		if (h > 1){
+			r = _5_f(h);
+		}
 		leak(r);
+	}
+	
+	public static int _5_f(int a) {
+		return a;
 	}
 }
