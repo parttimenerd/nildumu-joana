@@ -1,5 +1,6 @@
 package edu.kit.nildumu;
 
+import static edu.kit.nildumu.BasicLogger.*;
 import static edu.kit.nildumu.util.Util.set;
 import static guru.nidi.graphviz.model.Factory.graph;
 import static guru.nidi.graphviz.model.Factory.node;
@@ -329,7 +330,7 @@ public class Dominators<T> {
         PriorityQueue<Node<T>> queue =
                 new PriorityQueue<>(new TreeSet<>(Comparator.comparingInt(n -> -priority.apply((Node<T>)n))));
         queue.addAll(entryNode.transitiveOutHullAndSelfInPostOrder());
-        Context.log(() -> String.format("Initial order: %s", queue.toString()));
+        log(() -> String.format("Initial order: %s", queue.toString()));
         queue.forEach(n -> state.put(n, bot.apply(n)));
         while (queue.size() > 0) {
             Node<T> cur = queue.poll();

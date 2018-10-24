@@ -15,8 +15,11 @@ import static edu.kit.nildumu.util.Util.log2;
 import static edu.kit.nildumu.util.Util.permutatePair;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.Stack;
 import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
@@ -40,7 +43,51 @@ public interface Operator {
             super(String.format("%s, expected %d, but got %d argument(s)", op, expectedNumber, actualNumber));
         }
     }
+    
+    /**
+     * Negate the passed operator without generating a new layer of bits
+     */
+    public static Operator negate(Operator op) {
+    	return new Operator() {
+    		
+    		@Override
+    		public Value compute(Context c, SDGNode node, List<Value> arguments) {
+    			return op.compute(c, node, arguments).map(b -> {
+    				return bl.create(b.val().neg(), b.deps()); // TODO include repl modification
+    			});
+    		}
+			
+			@Override
+			public String toString(List<Value> arguments) {
+				return "!" + op.toString(arguments);
+			}
+		};
+    }
 
+    /**
+     * Reverses the order of the arguments of the passed operator 
+     */
+    public static Operator reverseArguments(Operator op) {
+    	return new Operator() {
+			
+    		@Override
+    		public Value compute(Context c, SDGNode node, List<Value> arguments) {
+    			return op.compute(c, node, reverseArguments(arguments));
+    		}
+    		
+			@Override
+			public String toString(List<Value> arguments) {
+				return op.toString(reverseArguments(arguments));
+			}
+			
+			List<Value> reverseArguments(List<Value> arguments){
+				List<Value> newList = new ArrayList<>(arguments);
+				Collections.reverse(newList);
+				return newList;
+			}
+		};
+    }
+    
     public static class LiteralOperator implements Operator {
         private final Value literal;
 
@@ -562,7 +609,7 @@ public interface Operator {
             Bit b_n = y.signBit();
             B v_x_n = a_n.val();
             B v_y_n = b_n.val();
-            Optional<Integer> differingNonConstantIndex = firstNonMatching(x, y, (c, d) -> x.isConstant() && c == d);
+            Optional<Integer> differingNonConstantIndex = firstNonMatching(x, y, (c, d) -> c.isConstant() && c == d);
             if (v_x_n.isConstant() && v_y_n.isConstant() && v_x_n != v_y_n) {
                 depBits = ds.empty();
                 if (v_x_n == ONE) { // x is negative
@@ -619,7 +666,7 @@ public interface Operator {
     };
 
     static final BitWiseOperator PHI_GENERIC = new BitWiseOperatorStructured("phi") {
-
+    	
     	@Override
     	public Value compute(Context c, SDGNode node, List<Value> arguments) {
         	List<AffectingConditional> affConds = c.getCurrentBasicBlockGraph()
@@ -628,7 +675,7 @@ public interface Operator {
             	AffectingConditional affCond = affConds.get(i);
             	Bit condBit = c.nodeValue(affCond.conditional).get(1);
             	if (condBit.isConstant() && condBit.val().toBoolean() == affCond.value) {
-            		return arguments.get(i);
+            		return arguments.get(i).map(b -> wrapBit(c, b));
             	}
             }
             return super.compute(c, node, arguments);
@@ -638,10 +685,10 @@ public interface Operator {
         Bit computeBit(Context c, List<Bit> bits) {
         	List<Bit> nonBots = bits.stream().filter(b -> b.val() != X).collect(Collectors.toList());
             if (nonBots.size() == 1){
-                return nonBots.get(0);
+                return wrapBit(c, nonBots.get(0));
             }
             if (bits.size() > 0 && bits.stream().filter(b -> b != bits.get(0)).count() == 0){
-                return bits.get(0);
+                return wrapBit(c, bits.get(0));
             }
             Lattices.B bitValue = computeBitValue(bits);
             if (bitValue.isConstant()) {
@@ -696,6 +743,12 @@ public interface Operator {
         }
 
     };
+    
+    public static Bit wrapBit(Context c, Bit source) {
+    	Bit wrap = bl.create(source.val(), ds.create(source));
+    	c.repl(wrap, ((con, b, a) -> con.choose(b, a) == a ? new Mods(b, a).add(c.repl(source).apply(con, source, a)) : Mods.empty()));
+    	return wrap;
+    }
 
     public static class PlaceBit extends UnaryOperator {
 
@@ -730,9 +783,14 @@ public interface Operator {
     static final BinaryOperator ADD = new BinaryOperator("+") {
         @Override
         Value compute(Context c, Value first, Value second) {
+        	Set<Bit> argBits = Stream.concat(first.stream(), second.stream()).collect(Collectors.toSet());
             List<Bit> res = new ArrayList<>();
             Box<Bit> carry = new Box<>(bl.create(ZERO));
-            return  vl.mapBitsToValue(first, second, (a, b) -> {
+            return vl.mapBitsToValue(first, second, (a, b) -> {
+               /* Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
+                carry.val = add.second;
+                Bit ret = add.first;
+                return new Bit(ret.val(), new Lattices.DependencySetImpl(ret.calculateReachedBits(argBits)));*/
                 Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
                 carry.val = add.second;
                 return add.first;

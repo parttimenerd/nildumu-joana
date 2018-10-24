@@ -9,6 +9,7 @@ import static edu.kit.nildumu.util.Util.toBinaryString;
 
 import java.time.temporal.ValueRange;
 import java.util.AbstractSet;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.function.BiFunction;
@@ -33,6 +35,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
+import edu.kit.nildumu.Lattices.Bit;
 import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.Pair;
 import edu.kit.nildumu.util.Util;
@@ -607,7 +610,7 @@ public class Lattices {
 
 	    public static class DependencySetImpl extends HashSet<Bit> implements DependencySet {
 
-	        private DependencySetImpl(Collection<? extends Bit> c) {
+	        public DependencySetImpl(Collection<? extends Bit> c) {
 	            super(c);
 	        }
 
@@ -921,7 +924,7 @@ public class Lattices {
 	         */
 	        Object store = null;
 
-	        private Bit(B val, DependencySet deps) {
+	        public Bit(B val, DependencySet deps) {
 	            this.val = val;
 	            this.deps = deps;
 	            this.bitNo = NUMBER_OF_BITS++;
@@ -1081,6 +1084,28 @@ public class Lattices {
 	        @Override
 	        public int hashCode() {
 	            return Objects.hash(bitNo);
+	        }
+	        
+	        public Set<Bit> calculateReachedBits(Set<Bit> bitsToReach){
+	            Queue<Bit> q = new ArrayDeque<>();
+	            Set<Bit> alreadyVisitedBits = new HashSet<>();
+	            q.add(this);
+	            Set<Bit> reachedBits = new HashSet<>();
+	            while (!q.isEmpty()) {
+	            	Bit cur = q.poll();
+	            	if (bitsToReach.contains(cur)) {
+	            		reachedBits.add(cur);
+	            	} else {
+		            	cur.deps().stream().filter(Bit::isUnknown).filter(b -> {
+		                    if (alreadyVisitedBits.contains(b)) {
+		                        return false;
+		                    }
+		                    alreadyVisitedBits.add(b);
+		                    return true;
+		                }).forEach(q::offer);
+	            	}
+	            }
+	            return reachedBits;
 	        }
 	    }
 

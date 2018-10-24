@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,10 @@ import java.util.stream.Collectors;
 import org.jgrapht.alg.flow.EdmondsKarpMaximumFlow;
 import org.jgrapht.alg.flow.PushRelabelMaximumFlow;
 import org.jgrapht.alg.interfaces.MaximumFlowAlgorithm.MaximumFlow;
+import org.jgrapht.ext.ComponentAttributeProvider;
+import org.jgrapht.ext.DOTExporter;
+import org.jgrapht.ext.IntegerNameProvider;
+import org.jgrapht.ext.StringNameProvider;
 import org.jgrapht.graph.DefaultWeightedEdge;
 import org.jgrapht.graph.SimpleDirectedWeightedGraph;
 
@@ -637,8 +642,32 @@ public class MinCut {
             }
             Set<Bit> minCut = graph.edgeSet().stream()
             		.filter(e -> reachable.contains(graph.getEdgeSource(e)) && !reachable.contains(graph.getEdgeTarget(e)))
+            		.map(e -> {
+            			graph.setEdgeWeight(e, 777);
+            			System.err.println(graph.getEdgeSource(e).bit);
+            			return e;
+            		})
             		.map(e -> graph.getEdgeSource(e).bit).collect(Collectors.toSet());
+            //exportGraph(graph, "bla_graph.dot");
             return new ComputationResult(minCut, Math.min(Math.round(maxFlow), Math.min(sourceNodes.size(), sinkNodes.size())));
+        }
+        
+        /** https://stackoverflow.com/a/16998796 */
+        private void exportGraph(SimpleDirectedWeightedGraph<Vertex, DefaultWeightedEdge> g, String filename) {
+        	IntegerNameProvider<Vertex> p1=new IntegerNameProvider<Vertex>();
+            StringNameProvider<Vertex> p2=new StringNameProvider<Vertex>();
+            ComponentAttributeProvider<DefaultWeightedEdge> p4 =
+               new ComponentAttributeProvider<DefaultWeightedEdge>() {
+                    public Map<String, String> getComponentAttributes(DefaultWeightedEdge e) {
+                        Map<String, String> map =new LinkedHashMap<String, String>();
+                        map.put("label", Double.toString(g.getEdgeWeight(e)));
+                        return map;
+                    }
+               };
+            DOTExporter export=new DOTExporter(p1, p2, null, null, p4);
+            try {
+                export.export(new FileWriter(filename), g);
+            }catch (IOException e){}
         }
     }
 

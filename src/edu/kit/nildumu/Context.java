@@ -5,7 +5,9 @@ import static edu.kit.nildumu.Lattices.bs;
 import static edu.kit.nildumu.Lattices.vl;
 import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_DELETIONS;
 import static edu.kit.nildumu.util.DefaultMap.ForbiddenAction.FORBID_VALUE_UPDATES;
+import static edu.kit.nildumu.BasicLogger.*;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -16,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.function.Consumer;
@@ -84,11 +87,6 @@ public class Context {
         private InvariantViolationException(String msg){
             super(msg);
         }
-    }
-
-    public static final Logger LOG = Logger.getLogger("Analysis");
-    static {
-        LOG.setLevel(Level.INFO);
     }
     
     final Program program;
@@ -176,7 +174,7 @@ public class Context {
 
             @Override
             public Value defaultValue(Map<SDGNode, Value> map, SDGNode key) {
-                return vl.bot();
+                return ValueLattice.get().parse("0bxx");
             }
         }, FORBID_DELETIONS);
 
@@ -272,12 +270,6 @@ public class Context {
         output.add(sec, value);
         return value;
     }
-    
-    public static void log(Supplier<String> msgProducer){
-        if (LOG.isLoggable(Level.FINE)){
-            System.out.println(msgProducer.get());
-        }
-    }
 
     boolean isInputBit(Bit bit) {
         return input.contains(bit);
@@ -289,6 +281,10 @@ public class Context {
 
     Value nodeValue(SDGNode node, Value value){
         return nodeValueState.nodeValueMap.put(node, value);
+    }
+    
+    boolean hasNodeValue(SDGNode node) {
+    	return nodeValueState.nodeValueMap.containsKey(node);
     }
 
     Operator operatorForNode(SDGNode node){
@@ -345,7 +341,7 @@ public class Context {
     }
    
     boolean evaluate(SDGNode node){
-    	System.err.println(node.getLabel());
+    	//System.err.println(node.getLabel());
     	final SDGNode resNode;
     	if (node.kind == Kind.CALL) {
     		PDGNode pdgNode = program.getPDG(node).getReturnOut(program.getPDG(node).getNodeWithId(node.getId()));
@@ -354,10 +350,9 @@ public class Context {
     		resNode = node;
     	}
     	
-    	System.err.println(" ### " +resNode.getLabel());
-        
-        log(() -> "Evaluate node " + node + " " + nodeValue(resNode).get(1).deps().size());
-        Value newValue = null;
+    	log(" ### " +resNode.getLabel());
+    	
+    	Value newValue = null;
         if (node.kind == Kind.CALL) {
         	newValue = evaluateCall(node);
         } else {
@@ -365,15 +360,16 @@ public class Context {
     		
         	newValue = op(node, args);
         }
+        log(newValue.repr());
         
         boolean somethingChanged = false;
-        if (nodeValue(resNode) != vl.bot()) { // dismiss first iteration
+        if (hasNodeValue(resNode)) { // dismiss first iteration
             Value oldValue = nodeValue(resNode);
-            merge(oldValue, newValue);
+            somethingChanged = merge(oldValue, newValue);
         } else {
-            somethingChanged = nodeValue(resNode).valueEquals(vl.bot());
+        	nodeValue(resNode, newValue);
+            somethingChanged = true;
         }
-        nodeValue(resNode, newValue);
         newValue.description(node.getLabel()).node(node);
         return somethingChanged;
     }
@@ -462,25 +458,28 @@ public class Context {
         }
         return leaks;
     }
-    
-    public int c1(Bit bit){
-        return c1(bit, new HashSet<>());
-    }
 
-    private int c1(Bit bit, Set<Bit> alreadyVisitedBits){
-        if (!currentCallPath.isEmpty() && methodParameterBits.peek().contains(bit)){
-            return 1;
+    private int c1(Bit bit){
+        Queue<Bit> q = new ArrayDeque<>();
+        Set<Bit> alreadyVisitedBits = new HashSet<>();
+        q.add(bit);
+        Set<Bit> anchors = new HashSet<>();
+        while (!q.isEmpty()) {
+        	Bit cur = q.poll();
+        	if ((!currentCallPath.isEmpty() && methodParameterBits.peek().contains(cur)) ||
+        			isInputBit(cur) && sec(cur) != sl.bot()) {
+        		anchors.add(cur);
+        	} else {
+        	cur.deps().stream().filter(Bit::isUnknown).filter(b -> {
+                if (alreadyVisitedBits.contains(b)) {
+                    return false;
+                }
+                alreadyVisitedBits.add(b);
+                return true;
+            }).forEach(q::offer);
+        	}
         }
-        if (isInputBit(bit) && sec(bit) != sl.bot()){
-            return 1;
-        }
-        return bit.deps().stream().filter(Bit::isUnknown).filter(b -> {
-            if (alreadyVisitedBits.contains(b)) {
-                return false;
-            }
-            alreadyVisitedBits.add(b);
-            return true;
-        }).mapToInt(b -> c1(b, alreadyVisitedBits)).sum();
+        return anchors.size();
     }
 
     /* -------------------------- extended mode specific -------------------------------*/
@@ -582,16 +581,20 @@ public class Context {
     private boolean merge(Bit o, Bit n){
         B vt = bs.sup(v(o), v(n));
         int oldDepsCount = o.deps().size();
+        boolean somethingChanged = false;
+        if (vt != v(o)) {
+        	o.setVal(vt);
+        	somethingChanged = true;
+        }
         o.addDependencies(d(n));
-        if (oldDepsCount == o.deps().size() && vt == v(o)){
+        if (oldDepsCount == o.deps().size() && !somethingChanged){
         	replMap.remove(n);
             return false;
         }
-        o.setVal(vt);
         repl(o, (c, b, a) -> {
-            Mods oMods = repl(o).apply(c, b, a);
-            Mods nMods = repl(n).apply(c, b, a);
-            return Mods.empty().add(oMods).merge(nMods);
+            //Mods oMods = repl(o).apply(c, b, a);// TODO: causes endless
+            //Mods nMods = repl(n).apply(c, b, a);//       recursion
+            return Mods.empty();//.add(oMods).merge(nMods);
         });
         replMap.remove(n);
         return true;
@@ -832,7 +835,7 @@ public class Context {
     		return null;
     	}
        	Box<Operator> op = new Box<>(null);
-       	System.err.println(node.getLabel());
+       	//System.err.println(node.getLabel());
        	//program.getProcIR(node).getPD
        	SSAInstruction instr = program.getInstruction(node);
        	instr.visit(new Visitor() {
@@ -898,43 +901,14 @@ public class Context {
 					op.val = Operator.EQUALS;
 					break;
 				case GE:
-					op.val = new Operator() {
-						
-						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
-							return Operator.NOT.compute(c, node, Arrays.asList(Operator.LESS.compute(c, node, Arrays.asList(arguments.get(0), arguments.get(1)))));
-						}
-						
-						@Override
-						public String toString(List<Value> arguments) {
-							return String.format("(%s >= %s)", arguments.get(0), arguments.get(1));
-						}
-					};
+					// → x >= y ? C1 : C2 === x < y ? C2 : C1
+					op.val = Operator.negate(Operator.LESS);
 					break;
 				case GT:
-					op.val = new Operator() {
-						
-						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
-							return Operator.LESS.compute(c, node, Arrays.asList(arguments.get(1), arguments.get(0)));
-						}
-						
-						@Override
-						public String toString(List<Value> arguments) {
-							return String.format("(%s > %s)", arguments.get(0), arguments.get(1));
-						}
-					};
+					op.val = Operator.reverseArguments(Operator.LESS);
 					break;
 				case LE:
-					op.val = op.val = new Operator() {
-						
-						public Value compute(Context c, SDGNode node, java.util.List<Value> arguments) {
-							return Operator.NOT.compute(c, node, Arrays.asList(Operator.LESS.compute(c, node, Arrays.asList(arguments.get(1), arguments.get(0)))));
-						}
-						
-						@Override
-						public String toString(List<Value> arguments) {
-							return String.format("(%s >= %s)", arguments.get(0), arguments.get(1));
-						}
-					};
+					op.val = Operator.reverseArguments(Operator.negate(Operator.LESS));
 					break;
 				case LT:
 					op.val = Operator.LESS;
@@ -955,7 +929,7 @@ public class Context {
        			op.val = Operator.RETURN;
        		}
        	});
-       	System.err.println(instr);
+       	//System.err.println(instr);
         if (op.val == null){
             throw new NildumuException(String.format("No operator for %s implemented", Program.toString(node)));
         }
@@ -1013,6 +987,7 @@ public class Context {
 		
 		@Override
 		public void visitConditionalBranch(SSAConditionalBranchInstruction instruction) {
+			
 			if (evaluate(node)) {
 				Value cond = nodeValue(node);
 				Bit condBit = cond.get(1);
@@ -1061,7 +1036,7 @@ public class Context {
 		
 		private boolean evaluate(SDGNode node) {
 			changed = Context.this.evaluate(node);
-			System.err.println(changed);
+			log("Evaluation of node %s changed", node);
 			return changed;
 		}
 		

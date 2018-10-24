@@ -96,11 +96,6 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
 		List<AffectingConditional> conds = new ArrayList<>();
 		SymbolTable st = program.getProcSymbolTable(phi);
 		SSAPhiInstruction instr = (SSAPhiInstruction)program.getInstruction(phi);
-		Stream.of(cfg.getInstructions()).forEach(i -> {
-			if (i != null) {
-				System.err.println(i.iindex + " " + i.toString());
-			}
-		});
 		ISSABasicBlock phiBlock = program.getBlock(phi);
 		List<ISSABasicBlock> predBlocks = Util.toList(cfg.getPredNodes(phiBlock));
 		for (int useNum = 0; useNum < instr.getNumberOfUses(); useNum++) {
@@ -132,7 +127,7 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     		// and the branch: assumption: first successor of the condBlock is the
     		// block for which the conditional jump is not executed
     		boolean branch = cfg.getSuccNodes(condBlock).next().getNumber() == condBlockChild.getNumber();
-    		System.err.println("this is phi " + phi.getLabel());
+    		//System.err.println("this is phi " + phi.getLabel());
     		SDGNode condNode = program.getSDGNodeForInstr(phi, condInstr);
     		conds.add(new AffectingConditional(condNode, branch));
     	}

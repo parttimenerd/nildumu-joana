@@ -14,5 +14,5 @@ import edu.kit.joana.ui.annotations.Source;
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.PARAMETER, ElementType.LOCAL_VARIABLE})
 public @interface Value {
-	String value();
+	String value() default "0buuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu";
 }

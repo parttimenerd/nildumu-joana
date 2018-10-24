@@ -38,6 +38,19 @@ public class SimpleTestBed2 {
 		simpleIfWithFuncCall(10);
 		testBasicLoopNested(10, true);
 		basicFibConst();
+		purseReduced(10);
+		testBasicLoop(true);
+	}
+	
+	//@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=1)
+	public static void testBasicLoop(@Source @Value("0bu") boolean h) {
+       int x = 0;
+       while (h){
+            x = 1;
+       }
+       leak(x);
 	}
 	
 	//@EntryPoint
@@ -248,7 +261,7 @@ public class SimpleTestBed2 {
 		return r;
 	}
 	
-	@EntryPoint
+	//@EntryPoint
 	@Config(intWidth=5)
 	@MethodInvocationHandlersToUse("handler=call_string;maxrec=2")
 	@ShouldLeak(bits="1")
@@ -400,5 +413,18 @@ public class SimpleTestBed2 {
 	        }
 	     }
 	     leak(x);
+	}
+	
+	
+	@EntryPoint
+	@Config(intWidth=32)
+	@ShouldLeak(exactly=7)
+	public static void purseReduced(@Source @Value("0b0uuuuuuu") int h) {
+		int O = 0;
+		while (h < 100){
+		    h = h + 1;
+		    O = O + 1;
+		}
+		leak(O);
 	}
 }

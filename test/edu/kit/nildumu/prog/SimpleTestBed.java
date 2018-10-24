@@ -35,6 +35,7 @@ public class SimpleTestBed {
 		testBasicLoop(10);
 		testBasicLoopNested(10, true);
 		simpleIfWithFuncCall(10);
+		purseReduced(10);
 	}
 	
 	@EntryPoint
@@ -317,5 +318,17 @@ public class SimpleTestBed {
 	
 	public static int _5_f(int a) {
 		return a;
+	}
+	
+	@EntryPoint
+	@Config(intWidth=32)
+	@ShouldLeak(exactly=4)
+	public static void purseReduced(@Source @Value("0b0uuuu") int h) {
+		int O = 0;
+		while (h < 100){
+		    h = h + 1;
+		    O = O + 1;
+		}
+		leak(O);
 	}
 }

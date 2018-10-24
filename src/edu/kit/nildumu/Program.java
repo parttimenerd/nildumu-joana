@@ -2,6 +2,7 @@ package edu.kit.nildumu;
 
 import static edu.kit.nildumu.Lattices.bl;
 import static edu.kit.nildumu.Lattices.vl;
+import static edu.kit.nildumu.BasicLogger.*;
 
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
@@ -15,6 +16,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -60,6 +62,7 @@ import edu.kit.nildumu.ui.CodeUI;
 import edu.kit.nildumu.ui.Config;
 import edu.kit.nildumu.ui.EntryPoint;
 import edu.kit.nildumu.ui.OutputMethod;
+import edu.kit.nildumu.util.DefaultMap;
 import edu.kit.nildumu.util.NildumuException;
 import edu.kit.nildumu.util.StablePriorityQueue;
 import edu.kit.nildumu.util.Util;
@@ -286,6 +289,7 @@ public class Program {
 			NodeEvaluator nodeEvaluator,
 			NextBlockFilter nextBlockFilter) {
 		Set<SDGNode> procNodes = getSDG().getNodesOfProcedure(entryNode);
+		Set<SDGNode> filteredProcNodes = procNodes.stream().filter(this::filterUninterestingNodes).collect(Collectors.toSet());
 
 		// order inside of blocks
 		List<SDGNode> topOrder = topOrder(entryNode);
@@ -300,7 +304,7 @@ public class Program {
 		Map<ISSABasicBlock, Integer> blockTopOrderIndex = 
 				IntStream.range(0, blockTopOrder.size()).boxed().collect(Collectors.toMap(blockTopOrder::get, Function.identity()));
 
-		System.err.println("Blocks in top order: " + blockTopOrder.stream().map(ISSABasicBlock::getNumber).map(Object::toString).collect(Collectors.joining(" → ")));
+		//System.err.println("Blocks in top order: " + blockTopOrder.stream().map(ISSABasicBlock::getNumber).map(Object::toString).collect(Collectors.joining(" → ")));
 		
 		// gather the nodes per block
 		Map<ISSABasicBlock, Set<SDGNode>> nodesPerBlock = 
@@ -335,7 +339,7 @@ public class Program {
 		// → higher priority to inner loop nodes
 		StablePriorityQueue<ISSABasicBlock> blockQueue = 
 				new StablePriorityQueue<>((a, b) -> {
-					System.err.println(a);
+					//System.err.println(a);
 					assert blockTopOrderIndex.containsKey(a);
 					return ComparisonChain.start().compare(-method.getLoopDepth(a), -method.getLoopDepth(b))
 					.compare(blockTopOrderIndex.get(a), blockTopOrderIndex.get(b)).result();
@@ -344,12 +348,24 @@ public class Program {
 		// we start at the root block
 		blockQueue.add(bbg.getRootElem());
 		
+		Map<SDGNode, Set<SDGNode>> nodesThatANodeDependsOn = new DefaultMap<>(HashSet::new);
+		Map<SDGNode, Set<SDGNode>> nodesThatDependOnTheNode = new DefaultMap<>(HashSet::new);
+		// the target depends on the source
+		BiConsumer<SDGNode, SDGNode> addDepFromTo = (source, target) -> {
+			nodesThatDependOnTheNode.get(source).add(target);
+			nodesThatANodeDependsOn.get(target).add(source);
+		};
+		for (SDGNode node : filteredProcNodes) {
+				sdg.getOutgoingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP).stream()
+				.map(SDGEdge::getTarget).forEach(target -> addDepFromTo.accept(node, target));
+			if (getPDGNode(node).getKind() == PDGNode.Kind.PHI) {
+				bbg.getPhiOperandAffectingConditionals(node).forEach(a -> addDepFromTo.accept(a.conditional, node));
+			}
+		}
+		
 		while (!blockQueue.isEmpty()) {
 			// we get a new block
 			ISSABasicBlock curBlock = blockQueue.poll();
-			
-			System.err.println("Started with block " + curBlock.getNumber());
-			System.err.println("----------------------------");
 			
 			// did something change during the evaluation of the block
 			boolean somethingChanged = false;
@@ -363,6 +379,12 @@ public class Program {
 			
 			// the inner block graph could be cyclic (loops)
 			Set<SDGNode> alreadyVisited = new HashSet<>();
+			
+			if (isLoggingEnabled()) {
+				log("Started with block " + curBlock.getNumber());
+				log("----------------------------");
+				logNodes("", nodeQueue.stream().collect(Collectors.toList()));
+			}
 			
 			// now a walk through these nodes in topological order
 			
@@ -383,16 +405,14 @@ public class Program {
 					nodesWithNewEvaluationPerNode.get(curNode).clear();
 					if (evalChanged) {
 						// tell the nodes that data depend on it, that its value changed
-						sdg.getOutgoingEdgesOfKind(curNode, SDGEdge.Kind.DATA_DEP).stream()
-							.map(SDGEdge::getTarget)
+						nodesThatDependOnTheNode.get(curNode).stream()
 							.map(nodesWithNewEvaluationPerNode::get)
 							.forEach(s -> s.add(curNode));
 						// add all nodes to the queue that depend on this node and belong to the
 						// current block
-						sdg.getOutgoingEdgesOfKind(curNode, SDGEdge.Kind.DATA_DEP)
-							.stream()
-							.map(SDGEdge::getTarget)
+						nodesThatDependOnTheNode.get(curNode).stream()
 							.filter(nodes::contains)
+							//.filter(filteredProcNodes::contains)
 							.forEach(nodeQueue::offer);
 					}
 					nodesEvaluatedOnce.add(curNode);
@@ -432,17 +452,15 @@ public class Program {
 		while (!unmarked.isEmpty()) {
 			visit.val.accept(Util.get(unmarked));
 		}
-		print("top order before reversal", l);
 		Collections.reverse(l);
-		print("top order", l);
 		return l;
 	}
 	
-	private void print(String header, List<SDGNode> nodes) {
-		System.out.print(header + "\n------\n");
+	private void logNodes(String header, List<SDGNode> nodes) {
+		log(header + "\n------\n");
 		nodes.stream().filter(this::filterUninterestingNodes).forEach(n -> {
 			if (getBlock(n) != null) {
-				System.out.printf("\t%2d|%s\n", getBlock(n).getNumber(), toString(n));
+				log("\t%2d|%s", getBlock(n).getNumber(), toString(n));
 			}
 		});
 	}
