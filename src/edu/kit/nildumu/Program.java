@@ -257,6 +257,11 @@ public class Program {
 				.stream().map(SDGEdge::getSource);
 	}
 	
+	public Stream<SDGNode> getDataDependentOn(SDGNode node){
+		return sdg.getOutgoingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP)
+				.stream().map(SDGEdge::getTarget);
+	}
+	
 	/**
 	 * Handles actual nodes of method calls: returns the method call site for it
 	 */
@@ -381,8 +386,8 @@ public class Program {
 			Set<SDGNode> alreadyVisited = new HashSet<>();
 			
 			if (isLoggingEnabled()) {
-				log("Started with block " + curBlock.getNumber());
-				log("----------------------------");
+				logOnErr("Started with block " + curBlock.getNumber());
+				logOnErr("----------------------------");
 				logNodes("", nodeQueue.stream().collect(Collectors.toList()));
 			}
 			
@@ -414,6 +419,11 @@ public class Program {
 							.filter(nodes::contains)
 							//.filter(filteredProcNodes::contains)
 							.forEach(nodeQueue::offer);
+						// add all the blocks that these nodes are part of to the block queue
+						// this ensures that the nodes are actually reevaluated
+						nodesThatDependOnTheNode.get(curNode).stream()
+							.filter(filteredProcNodes::contains)
+							.map(this::getBlock).forEach(blockQueue::offer);
 					}
 					nodesEvaluatedOnce.add(curNode);
 					somethingChanged = somethingChanged || evalChanged;
@@ -579,8 +589,11 @@ public class Program {
 		return builder.getPDGforMethod(getCGNode(node));
 	}
 	
+	private final DefaultMap<SDGNode, SSAInstruction> nodeToInstr = 
+			new DefaultMap<>((map, node) -> getPDG(node).getInstruction(getPDGNode(node)));
+	
 	public SSAInstruction getInstruction(SDGNode node) {
-		return getPDG(node).getInstruction(getPDGNode(node));
+		return nodeToInstr.get(node);
 	}
 	
 	public PDGNode getPDGNode(SDGNode node) {
@@ -649,7 +662,10 @@ public class Program {
 	}
 	
 	public Context analyze() {
+		//System.out.println(" -- " + context.getInputBits(context.sl.top()));
 		context.fixPointIteration(main.entry);
+		//System.out.println(" -- " + context.getOutputBits(context.sl.bot()));
+		//System.out.println(MinCut.compute(context, context.sl.bot()));
 		return context;
 	}
 	

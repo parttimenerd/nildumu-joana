@@ -664,7 +664,7 @@ public class MinCut {
                         return map;
                     }
                };
-            DOTExporter export=new DOTExporter(p1, p2, null, null, p4);
+            DOTExporter export = new DOTExporter(p1, p2, null, null, p4);
             try {
                 export.export(new FileWriter(filename), g);
             }catch (IOException e){}

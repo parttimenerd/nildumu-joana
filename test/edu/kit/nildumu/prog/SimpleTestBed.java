@@ -36,6 +36,7 @@ public class SimpleTestBed {
 		testBasicLoopNested(10, true);
 		simpleIfWithFuncCall(10);
 		purseReduced(10);
+		concLoopCond(1);
 	}
 	
 	@EntryPoint
@@ -327,6 +328,17 @@ public class SimpleTestBed {
 		int O = 0;
 		while (h < 100){
 		    h = h + 1;
+		    O = O + 1;
+		}
+		leak(O);
+	}
+	
+	@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=2)
+	public static void concLoopCond(@Source @Value("0buu") int h) {
+		int O = 0;
+		while (h == 0 | h == 0){
 		    O = O + 1;
 		}
 		leak(O);

@@ -947,13 +947,79 @@ public class Context {
 		private Set<ISSABasicBlock> omitNextTime = new HashSet<>();
 		private boolean changed = false;
 		private SDGNode node = null; 
+		private Set<SDGNode> partOfLoopConditionNodes;
+		private Method method;
 		
 		private FixpointIteration(SDGNode entryNode) {
 			super();
 			this.entryNode = entryNode;
+			this.method = nodeValueState.method;
+		}
+		
+		/**
+		 * Every node that a loop condition node transitively data depends on, excluding
+		 * dependencies through comparions.
+		 */
+		Set<SDGNode> calculatePartOfLoopConditionNodes(){
+			Set<SDGNode> nodes = program.getSDG().getNodesOfProcedure(entryNode);
+			Set<SDGNode> comps = nodes.stream()
+					.filter(n -> program.getInstruction(n) instanceof SSAConditionalBranchInstruction)
+					.collect(Collectors.toSet());
+			Set<SDGNode> partOfLoopConds = new HashSet<>();
+			for (SDGNode comp : comps) {
+				if (method.isPartOfLoop(comp)) {
+					// start at a branch condition
+					// use breadth first search
+					Queue<SDGNode> q = new ArrayDeque<>();
+				    // the comp it self is part of a loop condition
+					partOfLoopConds.add(comp);
+					program.getDataDependencies(comp).forEach(q::add);
+					while (!q.isEmpty()) {
+						// all nodes in the queue are part of a loop cond
+						// if they are not a comparison themselves
+						// unless they are in a loop
+						SDGNode cur = q.poll();
+						if (!comps.contains(cur) && isLogicalOpOrPhi(cur)) {
+							partOfLoopConds.add(cur);
+							program.getDataDependencies(cur).forEach(q::add);
+						}
+					}
+				}
+			}
+			return partOfLoopConds;
+		}
+		
+		private boolean isLogicalOpOrPhi(SDGNode node) {
+			SSAInstruction instr = program.getInstruction(node);
+			if (instr == null) {
+				return false;
+			}
+			Box<Boolean> isLog = new Box<>(false);
+			instr.visit(new Visitor() {
+	       		@Override
+	       		public void visitBinaryOp(SSABinaryOpInstruction instruction) {
+	       			IOperator wop = instruction.getOperator();
+	       			switch ((IBinaryOpInstruction.Operator)wop) {
+					case OR:
+					case AND:
+					case XOR:
+						isLog.val = true;
+						break;
+					default:
+						break;
+					}
+	       		}
+	       		
+	       		@Override
+	       		public void visitPhi(SSAPhiInstruction instruction) {
+	       			isLog.val = true;
+	       		}
+	       	});
+			return isLog.val;
 		}
 
 		private void run() {
+			this.partOfLoopConditionNodes = calculatePartOfLoopConditionNodes();
             workList(entryNode, n -> {
             	if (n.getLabel().equals("many2many")) {
 					return false;
@@ -987,12 +1053,11 @@ public class Context {
 		
 		@Override
 		public void visitConditionalBranch(SSAConditionalBranchInstruction instruction) {
-			
 			if (evaluate(node)) {
 				Value cond = nodeValue(node);
 				Bit condBit = cond.get(1);
                 B condVal = condBit.val();
-                if (condVal == B.U && isPartOfLoop()){
+                if (condVal == B.U && method.isPartOfLoop(node)){
                     weight(condBit, Context.INFTY);
                 }
                 if (condVal == B.ZERO && condVal != B.U) {
@@ -1010,8 +1075,10 @@ public class Context {
 			changed = true;
 		}
 		
-		private boolean isPartOfLoop() {
-			return program.method(entryNode).getLoopDepth(node) > 0;
+		private boolean conditionInLoopDirectlyDependsOn(SDGNode node) {
+			return program.getSDG().getOutgoingEdgesOfKind(node, SDGEdge.Kind.DATA_DEP).stream()
+					.map(SDGEdge::getTarget)
+					.anyMatch(method::isPartOfLoop);
 		}
 		
 		@Override
@@ -1036,6 +1103,9 @@ public class Context {
 		
 		private boolean evaluate(SDGNode node) {
 			changed = Context.this.evaluate(node);
+			if (partOfLoopConditionNodes.contains(node)) {
+				nodeValue(node).forEach(b -> weight(b, INFTY));
+			}
 			log("Evaluation of node %s changed", node);
 			return changed;
 		}

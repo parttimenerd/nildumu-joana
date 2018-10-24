@@ -85,4 +85,8 @@ public class Method {
 	public int getLoopDepth(ISSABasicBlock block) {
 		return getDoms().loopDepth(block);
 	}
+	
+	public boolean isPartOfLoop(SDGNode node) {
+		return getLoopDepth(node) > 0;
+	}
 }

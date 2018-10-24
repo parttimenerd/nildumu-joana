@@ -787,13 +787,13 @@ public interface Operator {
             List<Bit> res = new ArrayList<>();
             Box<Bit> carry = new Box<>(bl.create(ZERO));
             return vl.mapBitsToValue(first, second, (a, b) -> {
-               /* Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
-                carry.val = add.second;
-                Bit ret = add.first;
-                return new Bit(ret.val(), new Lattices.DependencySetImpl(ret.calculateReachedBits(argBits)));*/
                 Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
                 carry.val = add.second;
-                return add.first;
+                Bit ret = add.first;
+                return new Bit(ret.val(), new Lattices.DependencySetImpl(ret.calculateReachedBits(argBits)));
+               /* Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
+                carry.val = add.second;
+                return add.first;*/
             }, vl.bitWidth);
         }
 

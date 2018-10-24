@@ -40,6 +40,7 @@ public class SimpleTestBed2 {
 		basicFibConst();
 		purseReduced(10);
 		testBasicLoop(true);
+		concLoopCond(10);
 	}
 	
 	//@EntryPoint
@@ -416,13 +417,24 @@ public class SimpleTestBed2 {
 	}
 	
 	
-	@EntryPoint
+	//@EntryPoint
 	@Config(intWidth=32)
 	@ShouldLeak(exactly=7)
 	public static void purseReduced(@Source @Value("0b0uuuuuuu") int h) {
 		int O = 0;
 		while (h < 100){
 		    h = h + 1;
+		    O = O + 1;
+		}
+		leak(O);
+	}
+	
+	@EntryPoint
+	@Config(intWidth=2)
+	@ShouldLeak(exactly=2)
+	public static void concLoopCond(@Source @Value("0buu") int h) {
+		int O = 0;
+		while (h == 0 | h == 0){
 		    O = O + 1;
 		}
 		leak(O);
