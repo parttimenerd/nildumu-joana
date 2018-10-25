@@ -58,7 +58,7 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
 		this.program = program;
 		this.cfg = cfg;
 	}
-
+	
 	/**
 	 * Returns the conditional SDGNode that directly affects whether an
 	 * given SDGNode would be executed if the program would be evaluated and
@@ -101,7 +101,7 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
 		for (int useNum = 0; useNum < instr.getNumberOfUses(); useNum++) {
     		int use = instr.getUse(useNum);
     		ISSABasicBlock blockForOperand = predBlocks.get(useNum);
-    		ISSABasicBlock condBlock;
+    		ISSABasicBlock condBlock = null;
     		ISSABasicBlock condBlockChild;
     		if (loopDepth(phiBlock) > loopDepth(blockForOperand)) {
     			// the operand is defined outside of the loop that the phi depends on
@@ -114,12 +114,21 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     		} else {
     			// one indirection is allowed
     			ISSABasicBlock curBlockForOperand = blockForOperand;
+    			int ignoredConds = 0;
     			do {
-    				//assert cfg.getPredNodeCount(blockForOperand) == 1; // TODO: correct?
-        			condBlock = cfg.getPredNodes(curBlockForOperand).next();
-        			condBlockChild = curBlockForOperand;
-        			curBlockForOperand = condBlock;
-    			} while (!doesBlockEndWithCondBranch(condBlock));
+    			  if (ignoredConds > 0 && cfg.getSuccNodeCount(condBlock) > 1) {
+    			    ignoredConds--;
+    			  }
+    			  if (cfg.getPredNodeCount(curBlockForOperand) != 1) {
+    			    //if this is not a standard block, but a block, 
+    			    // that joins the branches of an condition
+    			    // ignore this condition
+    			    ignoredConds++; 
+    			  }
+      			condBlock = cfg.getPredNodes(curBlockForOperand).next();
+      			condBlockChild = curBlockForOperand;
+      			curBlockForOperand = condBlock;
+    			} while (!doesBlockEndWithCondBranch(condBlock) || ignoredConds > 0);
     		}
     		// now we can find the cond branch instruction
     		SSAConditionalBranchInstruction condInstr = 

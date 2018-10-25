@@ -527,6 +527,10 @@ public class Context {
     public void repl(Bit bit, ModsCreator modsCreator){
         replMap.put(bit, modsCreator);
     }
+    
+    public void removeRepl(Bit bit) {
+    	replMap.remove(bit);
+    }
 
     /**
      * Applies the repl function to get mods

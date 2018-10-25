@@ -43,8 +43,12 @@ public class StablePriorityQueue<E> extends AbstractQueue<E>{
 			.result());
 	}
 	
+	/**
+	 * Only allows elements that are not yet present in the queue
+	 */
 	@Override
 	public boolean offer(E e) {
+		assert !queue.contains(new QueueElement<>(e));
 		return queue.offer(new QueueElement<>(e));
 	}
 

@@ -14,8 +14,8 @@ import edu.kit.nildumu.ui.Value;
 public class SimpleTestBed2 {
 
 	public static void main(String[] args) {
-//		simpleAdd(10);
-		simple2(10);
+		//		simpleAdd(10);
+		/*simple2(10);
 //		simple3(10, 10);
 //		simple4(10, 10);
 //		simpleIf(true);
@@ -43,7 +43,8 @@ public class SimpleTestBed2 {
 		concLoopCond(10);
 		maskedCopy(10);
 		loopWithShifts(10);
-		binsearch16(1);
+		binsearch16(1);*/
+		binsearch16reduced(1);
 	}
 	
 	//@EntryPoint
@@ -470,7 +471,7 @@ public class SimpleTestBed2 {
 	leak(O);
 	}
 
-	@EntryPoint 
+	//@EntryPoint 
 	@Config(intWidth=32)
 	@ShouldLeak(atLeast=1)
 	public static void binsearch16(@Source int I){
@@ -486,6 +487,21 @@ public class SimpleTestBed2 {
 	
 			}
 			i = (i + 1);
+		}
+		leak(O);
+	}
+	
+	@EntryPoint 
+	@Config(intWidth=32)
+	@ShouldLeak(atLeast=1)
+	public static void binsearch16reduced(@Source int I){
+		int O = 0;
+		int i = 0;
+		while  (i < 2) {
+			if (O != I) {
+				O =  1;
+			}
+			i = i+1;
 		}
 		leak(O);
 	}

@@ -369,6 +369,9 @@ public class Program {
 		}
 		
 		while (!blockQueue.isEmpty()) {
+			
+			log(() -> "Block queue: " + blockQueue.stream().map(b -> b.getNumber() + "").collect(Collectors.joining(" → ")));
+			
 			// we get a new block
 			ISSABasicBlock curBlock = blockQueue.poll();
 			
@@ -386,8 +389,8 @@ public class Program {
 			Set<SDGNode> alreadyVisited = new HashSet<>();
 			
 			if (isLoggingEnabled()) {
-				logOnErr("Started with block " + curBlock.getNumber());
-				logOnErr("----------------------------");
+				log("Started with block " + curBlock.getNumber());
+				log("----------------------------");
 				logNodes("", nodeQueue.stream().collect(Collectors.toList()));
 			}
 			
@@ -423,7 +426,11 @@ public class Program {
 						// this ensures that the nodes are actually reevaluated
 						nodesThatDependOnTheNode.get(curNode).stream()
 							.filter(filteredProcNodes::contains)
-							.map(this::getBlock).forEach(blockQueue::offer);
+							.map(this::getBlock).forEach(b -> {
+								if (b.getNumber() != curBlock.getNumber() && !blockQueue.contains(b) && !bbg.dominators(curBlock).contains(b)) {
+									blockQueue.offer(b);
+								}
+							});
 					}
 					nodesEvaluatedOnce.add(curNode);
 					somethingChanged = somethingChanged || evalChanged;
@@ -433,7 +440,7 @@ public class Program {
 			// the current block is now evaluated fully
 			// we now go back to the fix point iteration 
 			if (somethingChanged || nodes.isEmpty()) {
-				bbg.getNextElems(curBlock).stream().filter(nextBlockFilter).forEach(blockQueue::offer);
+				bbg.getNextElems(curBlock).stream().filter(nextBlockFilter).filter(b -> !blockQueue.contains(b)).forEach(blockQueue::offer);
 				nextBlockFilter.clear();
 			}
 		}

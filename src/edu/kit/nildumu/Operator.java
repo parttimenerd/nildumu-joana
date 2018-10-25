@@ -52,9 +52,10 @@ public interface Operator {
     		
     		@Override
     		public Value compute(Context c, SDGNode node, List<Value> arguments) {
-    			return op.compute(c, node, arguments).map(b -> {
+    			Value ret = op.compute(c, node, arguments).map(b -> {
     				return bl.create(b.val().neg(), b.deps()); // TODO include repl modification
     			});
+    			return ret;
     		}
 			
 			@Override
