@@ -41,6 +41,9 @@ public class SimpleTestBed2 {
 		purseReduced(10);
 		testBasicLoop(true);
 		concLoopCond(10);
+		maskedCopy(10);
+		loopWithShifts(10);
+		binsearch16(1);
 	}
 	
 	//@EntryPoint
@@ -429,7 +432,7 @@ public class SimpleTestBed2 {
 		leak(O);
 	}
 	
-	@EntryPoint
+	//@EntryPoint
 	@Config(intWidth=2)
 	@ShouldLeak(exactly=2)
 	public static void concLoopCond(@Source @Value("0buu") int h) {
@@ -439,4 +442,52 @@ public class SimpleTestBed2 {
 		}
 		leak(O);
 	}
+	
+	//@EntryPoint
+	@Config(intWidth=10)
+	@ShouldLeak(exactly=5)
+	public static void maskedCopy(@Source int h) {
+		leak(h | 0b11111);
+	}
+	
+	//@EntryPoint 
+	@Config(intWidth=32)
+	@ShouldLeak(atLeast=10)
+	public static void loopWithShifts(@Source int I){
+	int BITS = 16;
+	int O = 0;
+	int m = 0;
+	int i = 0;
+	while  ((i < BITS)) {
+		m = (1 << (30 - i));
+		if (((O + m) <= I)) {
+			O = (O + m);
+		} else {
+
+		}
+		i = (i + 1);
+	}
+	leak(O);
+	}
+
+	@EntryPoint 
+	@Config(intWidth=32)
+	@ShouldLeak(atLeast=1)
+	public static void binsearch16(@Source int I){
+		int BITS = 16;
+		int O = 0;
+		int m = 0;
+		int i = 0;
+		while  ((i < BITS)) {
+			m = (1 << (30 - i));
+			if (((O + m) <= I)) {
+				O = (O + m);
+			} else {
+	
+			}
+			i = (i + 1);
+		}
+		leak(O);
+	}
+
 }

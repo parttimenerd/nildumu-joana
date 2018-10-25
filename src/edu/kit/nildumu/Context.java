@@ -33,6 +33,7 @@ import java.util.stream.IntStream;
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction;
 import com.ibm.wala.shrikeBT.IBinaryOpInstruction.IOperator;
 import com.ibm.wala.shrikeBT.IConditionalBranchInstruction;
+import com.ibm.wala.shrikeBT.IShiftInstruction;
 import com.ibm.wala.shrikeBT.IUnaryOpInstruction;
 import com.ibm.wala.ssa.ConstantValue;
 import com.ibm.wala.ssa.ISSABasicBlock;
@@ -842,6 +843,17 @@ public class Context {
        		@Override
        		public void visitBinaryOp(SSABinaryOpInstruction instruction) {
        			IOperator wop = instruction.getOperator();
+       			if (wop instanceof IShiftInstruction.Operator) {
+       				switch ((IShiftInstruction.Operator)wop) {
+       				case SHL:
+       					op.val = Operator.LEFT_SHIFT;
+       					break;
+       				case SHR:
+       					op.val = Operator.RIGHT_SHIFT;
+       					break;
+       				}
+       				return;
+       			}
        			switch ((IBinaryOpInstruction.Operator)wop) {
 				case OR:
 					op.val = Operator.OR;
@@ -884,7 +896,7 @@ public class Context {
 				default:
 					break;
 				}
-       		}
+       		}       	
        		
        		@Override
        		public void visitUnaryOp(SSAUnaryOpInstruction instruction) {
@@ -974,14 +986,18 @@ public class Context {
 				    // the comp it self is part of a loop condition
 					partOfLoopConds.add(comp);
 					program.getDataDependencies(comp).forEach(q::add);
+					Set<SDGNode> alreadyVisited = new HashSet<>();
 					while (!q.isEmpty()) {
 						// all nodes in the queue are part of a loop cond
 						// if they are not a comparison themselves
 						// unless they are in a loop
 						SDGNode cur = q.poll();
+						alreadyVisited.add(cur);
 						if (!comps.contains(cur) && isLogicalOpOrPhi(cur)) {
 							partOfLoopConds.add(cur);
-							program.getDataDependencies(cur).forEach(q::add);
+							program.getDataDependencies(cur)
+								.filter(n -> !alreadyVisited.contains(n))
+								.forEach(q::add);
 						}
 					}
 				}

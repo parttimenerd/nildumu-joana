@@ -188,9 +188,12 @@ public class Dominators<T> {
   
     public void registerDotGraph(String topic, String name, Function<T, String> labeler) {
         DotRegistry.get().store(topic, name,
-                () -> () -> entryNode.createDotGraph(n -> 
-                Records.of(loopDepths.get(n) + "",
-                		HtmlEscapers.htmlEscaper().escape(labeler.apply(n.elem)))));
+                () -> () -> {
+                	Graph g = entryNode.createDotGraph(n -> Records.of(loopDepths.get(n) + "",
+                    		HtmlEscapers.htmlEscaper().escape(labeler.apply(n.elem))));
+                	return g;
+                }
+                );
     }
     
     static <T> Set<T> transitiveHull(T elem, Function<T, Collection<T>> outs){

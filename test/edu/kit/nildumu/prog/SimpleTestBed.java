@@ -37,6 +37,7 @@ public class SimpleTestBed {
 		simpleIfWithFuncCall(10);
 		purseReduced(10);
 		concLoopCond(1);
+		loopWithShifts(10);
 	}
 	
 	@EntryPoint
@@ -342,5 +343,25 @@ public class SimpleTestBed {
 		    O = O + 1;
 		}
 		leak(O);
+	}
+	
+	@EntryPoint 
+	@Config(intWidth=32)
+	@ShouldLeak(atLeast=10)
+	public static void loopWithShifts(@Source int I){
+	int BITS = 16;
+	int O = 0;
+	int m = 0;
+	int i = 0;
+	while  ((i < BITS)) {
+		m = (1 << (30 - i));
+		if (((O + m) <= I)) {
+			O = (O + m);
+		} else {
+
+		}
+		i = (i + 1);
+	}
+	leak(O);
 	}
 }

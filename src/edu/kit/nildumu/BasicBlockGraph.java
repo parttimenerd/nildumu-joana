@@ -115,7 +115,7 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     			// one indirection is allowed
     			ISSABasicBlock curBlockForOperand = blockForOperand;
     			do {
-    				assert cfg.getPredNodeCount(blockForOperand) == 1;
+    				//assert cfg.getPredNodeCount(blockForOperand) == 1; // TODO: correct?
         			condBlock = cfg.getPredNodes(curBlockForOperand).next();
         			condBlockChild = curBlockForOperand;
         			curBlockForOperand = condBlock;
