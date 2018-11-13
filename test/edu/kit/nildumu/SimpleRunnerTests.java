@@ -2,6 +2,7 @@ package edu.kit.nildumu;
 
 import java.util.stream.Stream;
 
+import org.junit.Before;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -36,6 +37,12 @@ public class SimpleRunnerTests {
 	}
 	
 	public static void main(String[] args) {
+		try {
+			Thread.sleep(10000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 		Runner.testCases(SimpleTestBed.class).forEach(a -> Runner.test((TestCase)a.get()[0], (String)a.get()[1], false));
 	}
 }

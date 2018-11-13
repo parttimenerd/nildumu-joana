@@ -2,6 +2,7 @@ package edu.kit.nildumu.interproc;
 
 import static edu.kit.nildumu.Context.INFTY;
 import static edu.kit.nildumu.Lattices.ds;
+import static edu.kit.nildumu.BasicLogger.log;
 
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -161,7 +162,7 @@ public class SummaryHandler extends MethodInvocationHandler {
     }
 
     List<Value> generateParameters(Program program, Method method){
-        System.err.println(method);
+        log(() -> method.toString());
     	return method.getParameters().stream().map(p ->
             program.createUnknownValue(p.getType())
         ).collect(Collectors.toList());

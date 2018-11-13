@@ -8,7 +8,7 @@ import java.util.function.Supplier;
  */
 public class BasicLogger {
 
-	private static boolean enabled = true;
+	private static boolean enabled = false;
 	
 	public static void log(Supplier<Object> complexMsgCreator) {
 		if (enabled) {

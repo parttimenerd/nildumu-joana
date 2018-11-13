@@ -797,6 +797,7 @@ public class Context {
 	private Value evaluateCall(SDGNode callSite) {
 		assert callSite.kind == Kind.CALL;
 		List<Value> args = opArgs(callSite, this::nodeValueRec,program.getParamNodes(callSite));
+		System.err.println(program.getMethodForCallSite(callSite));
 		return methodInvocationHandler.analyze(this, 
 				new CallSite.NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
 	}
@@ -1014,28 +1015,8 @@ public class Context {
 			if (instr == null) {
 				return false;
 			}
-			Box<Boolean> isLog = new Box<>(false);
-			instr.visit(new Visitor() {
-	       		@Override
-	       		public void visitBinaryOp(SSABinaryOpInstruction instruction) {
-	       			IOperator wop = instruction.getOperator();
-	       			switch ((IBinaryOpInstruction.Operator)wop) {
-					case OR:
-					case AND:
-					case XOR:
-						isLog.val = true;
-						break;
-					default:
-						break;
-					}
-	       		}
-	       		
-	       		@Override
-	       		public void visitPhi(SSAPhiInstruction instruction) {
-	       			isLog.val = true;
-	       		}
-	       	});
-			return isLog.val;
+			Operator op = operatorForNodeNotCached(node);
+			return op == Operator.PHI_GENERIC || op == Operator.AND || op == Operator.NOT || op == Operator.OR || op == Operator.XOR;
 		}
 
 		private void run() {

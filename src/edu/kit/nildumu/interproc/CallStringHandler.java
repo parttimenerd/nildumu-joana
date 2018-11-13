@@ -8,6 +8,8 @@ import edu.kit.nildumu.Program;
 import edu.kit.nildumu.Lattices.Value;
 import edu.kit.nildumu.util.DefaultMap;
 
+import static edu.kit.nildumu.BasicLogger.*;
+
 /**
  * A call string based handler that just inlines a function.
  * If a function was inlined in the current call path more than a defined number of times,
@@ -37,7 +39,8 @@ public class CallStringHandler extends MethodInvocationHandler {
     @Override
     public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
         Method method = callSite.method;
-        System.err.printf("                Arguments for rec depth %d: %s\n", methodCallCounter.get(method), arguments);
+        log(() -> String.format("                Arguments for rec depth %d: %s\n", 
+        		methodCallCounter.get(method), arguments));
         if (methodCallCounter.get(method) < maxRec) {
             methodCallCounter.put(method, methodCallCounter.get(method) + 1);
             c.pushNewMethodInvocationState(callSite, arguments);

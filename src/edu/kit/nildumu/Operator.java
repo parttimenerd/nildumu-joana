@@ -182,6 +182,7 @@ public interface Operator {
 
         @Override
         Value compute(Context c, Value first, Value second) {
+            System.out.println(symbol + " " + new Value(first.lattice().mapBits(first, second, (a, b) -> compute(c, a, b))));
             return new Value(first.lattice().mapBits(first, second, (a, b) -> compute(c, a, b)));
         }
 
@@ -305,6 +306,7 @@ public interface Operator {
                     c.repl(r, computeModsCreator(i + 1, r, x, y, bitValues, dataDeps.get(i)));
                 }
             }
+            System.out.println(symbol + " " + toString(Arrays.asList(x, y)) + " -> " + new Value(bits));
             return new Value(bits);
         }
 
@@ -629,7 +631,7 @@ public interface Operator {
         }
 
         Optional<Integer> firstNonMatching(Value x, Value y, BiPredicate<B, B> pred) {
-            int j = x.size() - 1;
+            int j = Math.max(x.size(), y.size()) - 1;
             while (j >= 1 && pred.test(x.get(j).val(), y.get(j).val())) {
                 j--;
             }
@@ -791,10 +793,10 @@ public interface Operator {
                 Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
                 carry.val = add.second;
                 Bit ret = add.first;
-                return new Bit(ret.val(), new Lattices.DependencySetImpl(ret.calculateReachedBits(argBits)));
-               /* Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
+                //return new Bit(ret.val(), new Lattices.DependencySetImpl(ret.calculateReachedBits(argBits)));
+               //Pair<Bit, Bit> add = fullAdder(c, a, b, carry.val);
                 carry.val = add.second;
-                return add.first;*/
+                return add.first;
             }, vl.bitWidth);
         }
 

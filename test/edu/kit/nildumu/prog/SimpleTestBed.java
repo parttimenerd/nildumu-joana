@@ -38,6 +38,7 @@ public class SimpleTestBed {
 		purseReduced(10);
 		concLoopCond(1);
 		loopWithShifts(10);
+		weirdLoopFunctionTermination2(1);
 	}
 	
 	@EntryPoint
@@ -229,6 +230,39 @@ public class SimpleTestBed {
         }
         return r;
     }
+	
+	@EntryPoint
+	@Config(intWidth=32)
+	@MethodInvocationHandlersToUse
+	@ShouldLeak(atLeast=1)
+	public static void weirdLoopFunctionTermination2(@Source int h) {
+	    int res = 0; 
+		while (h < 1000) {
+			while (h < 100 + func(h)) {
+				res = res + func(h);
+				h += fib(func(h));
+			}
+	    }
+		leak(func(h) | fib(3) | _4_f2(100));
+	}
+	
+	public static int func(int a) {
+		int r = 1;
+        while (a > 0){
+            if (a > 1){
+               r = r + _3_bla(a - 1);
+            }
+        }
+        return r | _fib(100);
+    }
+	
+	public static int _fib(int a) {
+		int r = 1;
+		if (a > 1){
+			r = fib(a - 1) + fib(a - 2);
+		}
+		return r;
+	}
 	
 	@EntryPoint
 	@Config(intWidth=2)
