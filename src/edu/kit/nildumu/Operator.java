@@ -88,7 +88,7 @@ public interface Operator {
 			}
 		};
     }
-    
+
     public static class LiteralOperator implements Operator {
         private final Value literal;
 
@@ -182,8 +182,7 @@ public interface Operator {
 
         @Override
         Value compute(Context c, Value first, Value second) {
-            System.out.println(symbol + " " + new Value(first.lattice().mapBits(first, second, (a, b) -> compute(c, a, b))));
-            return new Value(first.lattice().mapBits(first, second, (a, b) -> compute(c, a, b)));
+             return new Value(first.lattice().mapBits(first, second, (a, b) -> compute(c, a, b)));
         }
 
         abstract Bit compute(Context c, Bit first, Bit second);
@@ -306,7 +305,6 @@ public interface Operator {
                     c.repl(r, computeModsCreator(i + 1, r, x, y, bitValues, dataDeps.get(i)));
                 }
             }
-            System.out.println(symbol + " " + toString(Arrays.asList(x, y)) + " -> " + new Value(bits));
             return new Value(bits);
         }
 

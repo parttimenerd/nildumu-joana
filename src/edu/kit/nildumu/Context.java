@@ -99,6 +99,8 @@ public class Context {
     final IOValues input = new IOValues();
 
     final IOValues output = new IOValues();
+    
+    private int unrollCount = 1;
 
     private final Stack<State> variableStates = new Stack<>();
 
@@ -179,6 +181,8 @@ public class Context {
             }
         }, FORBID_DELETIONS);
 
+        final DefaultMap<SDGNode, Integer> count = new DefaultMap<>((map, key) -> 0);
+        
         final CallPath path;
         
         final Method method;
@@ -364,13 +368,14 @@ public class Context {
         log(newValue.repr());
         
         boolean somethingChanged = false;
-        if (hasNodeValue(resNode)) { // dismiss first iteration
+        if (hasNodeValue(resNode) && nodeValueState.count.get(resNode) >= unrollCount) { // dismiss first iteration
             Value oldValue = nodeValue(resNode);
             somethingChanged = merge(oldValue, newValue);
         } else {
         	nodeValue(resNode, newValue);
             somethingChanged = true;
         }
+        nodeValueState.count.put(resNode, nodeValueState.count.get(resNode) + 1);
         newValue.description(node.getLabel()).node(node);
         return somethingChanged;
     }
@@ -568,6 +573,7 @@ public class Context {
     public void weight(Bit bit, int weight){
         assert weight == 1 || weight == INFTY;
         if (weight == 1){
+        	weightMap.remove(bit, weight);
             return;
         }
         weightMap.put(bit, weight);
@@ -797,7 +803,6 @@ public class Context {
 	private Value evaluateCall(SDGNode callSite) {
 		assert callSite.kind == Kind.CALL;
 		List<Value> args = opArgs(callSite, this::nodeValueRec,program.getParamNodes(callSite));
-		System.err.println(program.getMethodForCallSite(callSite));
 		return methodInvocationHandler.analyze(this, 
 				new CallSite.NodeBasedCallSite(program.getMethodForCallSite(callSite), callSite), args);
 	}

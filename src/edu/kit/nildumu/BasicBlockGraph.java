@@ -1,6 +1,8 @@
 package edu.kit.nildumu;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -107,6 +109,10 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     			// the operand is defined outside of the loop that the phi depends on
     			condBlockChild = blockForOperand;
     			condBlock = cfg.getSuccNodes(blockForOperand).next();
+    			while (!doesBlockEndWithCondBranch(condBlock)) {
+    				condBlockChild = condBlock;
+    				condBlock = cfg.getSuccNodes(condBlock).next();
+    			}
     		} else if (doesBlockEndWithCondBranch(blockForOperand)) {
     			// we found our block
     			condBlock = blockForOperand;
@@ -119,17 +125,30 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     			  if (ignoredConds > 0 && cfg.getSuccNodeCount(condBlock) > 1) {
     			    ignoredConds--;
     			  }
-    			  if (cfg.getPredNodeCount(curBlockForOperand) != 1) {
-    			    //if this is not a standard block, but a block, 
+    			  if (cfg.getPredNodeCount(curBlockForOperand) != 1 &&
+    			      !Optional.ofNullable(getLastInstruction(curBlockForOperand)).map(SSAInstruction::isPEI).orElse(false)) {
+    			    // if this is not a standard block, but a block, 
     			    // that joins the branches of an condition
     			    // ignore this condition
     			    ignoredConds++; 
     			  }
-      			condBlock = cfg.getPredNodes(curBlockForOperand).next();
+    			System.err.println("   " + curBlockForOperand + "  " + ignoredConds + " " + Optional.ofNullable(getLastInstruction(curBlockForOperand)).map(SSAInstruction::isPEI));
+    			if (cfg.getPredNodeCount(curBlockForOperand) == 1) {
+    				condBlock = cfg.getPredNodes(curBlockForOperand).next();
+    			} else {
+    				List<ISSABasicBlock> preds = Arrays.asList(Iterators.toArray(cfg.getPredNodes(curBlockForOperand), ISSABasicBlock.class));
+    				for (ISSABasicBlock block : preds) {
+    					if (preds.stream().allMatch(sub -> !dominators(sub).contains(block) || sub == block)) {
+							condBlock = block;
+							break;
+						}
+					}
+    			}
       			condBlockChild = curBlockForOperand;
       			curBlockForOperand = condBlock;
     			} while (!doesBlockEndWithCondBranch(condBlock) || ignoredConds > 0);
     		}
+    		System.err.println(getLastInstruction(condBlock));
     		// now we can find the cond branch instruction
     		SSAConditionalBranchInstruction condInstr = 
     				(SSAConditionalBranchInstruction)getLastInstruction(condBlock);
@@ -164,6 +183,6 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
 	}
 	
 	private SSAInstruction getLastInstruction(ISSABasicBlock block) {
-		return block.getLastInstruction();//getInstruction(block, block.getFirstInstructionIndex());
+		return block.getLastInstructionIndex() >= 0 ? block.getLastInstruction() : null;//getInstruction(block, block.getFirstInstructionIndex());
 	}
 }

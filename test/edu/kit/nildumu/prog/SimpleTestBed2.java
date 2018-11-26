@@ -37,9 +37,9 @@ public class SimpleTestBed2 {
 		test2(10, 10);
 		simpleIfWithFuncCall(10);
 		testBasicLoopNested(10, true);
-		basicFibConst();
-		purseReduced(10);
-		testBasicLoop(true);
+		basicFibConst();*/
+		//purseReduced(10);
+		/*testBasicLoop(true);
 		concLoopCond(10);
 		maskedCopy(10);
 		loopWithShifts(10);
@@ -47,7 +47,8 @@ public class SimpleTestBed2 {
 		//binsearch16reduced(1);
 		//test2(1);
 		//test5(1);
-		fib_3_p(1);
+		//fib_3_p(1);
+		weirdLoopFunctionTermination2(1);
 	}
 	
 	//@EntryPoint
@@ -427,9 +428,22 @@ public class SimpleTestBed2 {
 	//@EntryPoint
 	@Config(intWidth=32)
 	@ShouldLeak(exactly=7)
-	public static void purseReduced(@Source @Value("0b0uuuuuuu") int h) {
+	public static void purseReduced2(@Source @Value("0b0uuuuuuu") int h) {
 		int O = 0;
 		while (h < 100){
+		    h = h + 1;
+		    O = O + 1;
+		}
+		leak(O);
+	}
+	
+	
+	//@EntryPoint
+	@Config(intWidth=32)
+	@ShouldLeak(exactly=7)
+	public static void purseReduced(@Source @Value("0b0uuuuuuu") int h) {
+		int O = 0;
+		while (h <= 100){
 		    h = h + 1;
 		    O = O + 1;
 		}
@@ -738,7 +752,7 @@ public class SimpleTestBed2 {
 
 		leak(om);}
 	
-	@EntryPoint @Config(intWidth=6)
+	//@EntryPoint @Config(intWidth=6)
 	@MethodInvocationHandlersToUse
 	@ShouldLeak(exactly=1)
 	public static void fib_3_p(@Source(level=Level.HIGH) int h){
@@ -760,5 +774,21 @@ public class SimpleTestBed2 {
 
 	return (int)(r);
 	}
+	
+	@EntryPoint
+	@Config(intWidth=32)
+	@MethodInvocationHandlersToUse("all")
+	@ShouldLeak(exactly=0)
+	public static void weirdLoopFunctionTermination2(@Source int h) {
+	    int res = 0; 
+		while (h < func(h) || h == 0) {
+			res = res + 1;
+		}
+	}
+	
+	public static int func(int a) {
+		return a;
+    }
+	
 
 }
