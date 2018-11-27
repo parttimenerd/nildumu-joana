@@ -39,6 +39,7 @@ public class SimpleTestBed {
 		concLoopCond(1);
 		loopWithShifts(10);
 		weirdLoopFunctionTermination2(1);
+		weirdLoopFunctionTermination3(1);
 	}
 	
 	@EntryPoint
@@ -397,5 +398,16 @@ public class SimpleTestBed {
 		i = (i + 1);
 	}
 	leak(O);
+	}
+	
+	@EntryPoint
+	@Config(intWidth=32)
+	@MethodInvocationHandlersToUse("all")
+	@ShouldLeak(exactly=0)
+	public static void weirdLoopFunctionTermination3(@Source int h) {
+	    int res = 0; 
+		while (h < fib(h) || h == 0) {
+			res = res + 1;
+		}
 	}
 }

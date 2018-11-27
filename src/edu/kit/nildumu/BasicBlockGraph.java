@@ -132,7 +132,6 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
     			    // ignore this condition
     			    ignoredConds++; 
     			  }
-    			System.err.println("   " + curBlockForOperand + "  " + ignoredConds + " " + Optional.ofNullable(getLastInstruction(curBlockForOperand)).map(SSAInstruction::isPEI));
     			if (cfg.getPredNodeCount(curBlockForOperand) == 1) {
     				condBlock = cfg.getPredNodes(curBlockForOperand).next();
     			} else {
@@ -148,7 +147,6 @@ public class BasicBlockGraph extends Dominators<ISSABasicBlock> {
       			curBlockForOperand = condBlock;
     			} while (!doesBlockEndWithCondBranch(condBlock) || ignoredConds > 0);
     		}
-    		System.err.println(getLastInstruction(condBlock));
     		// now we can find the cond branch instruction
     		SSAConditionalBranchInstruction condInstr = 
     				(SSAConditionalBranchInstruction)getLastInstruction(condBlock);
