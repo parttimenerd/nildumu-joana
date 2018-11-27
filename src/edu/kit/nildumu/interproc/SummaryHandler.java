@@ -162,7 +162,7 @@ public class SummaryHandler extends MethodInvocationHandler {
     }
 
     List<Value> generateParameters(Program program, Method method){
-        log(() -> method.toString());
+        //log(() -> method.toString());
     	return method.getParameters().stream().map(p ->
             program.createUnknownValue(p.getType())
         ).collect(Collectors.toList());

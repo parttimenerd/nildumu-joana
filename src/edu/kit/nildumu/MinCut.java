@@ -644,7 +644,7 @@ public class MinCut {
             		.filter(e -> reachable.contains(graph.getEdgeSource(e)) && !reachable.contains(graph.getEdgeTarget(e)))
             		.map(e -> {
             			graph.setEdgeWeight(e, 777);
-            			System.err.println(graph.getEdgeSource(e).bit);
+            			//System.err.println(graph.getEdgeSource(e).bit);
             			return e;
             		})
             		.map(e -> graph.getEdgeSource(e).bit).collect(Collectors.toSet());
