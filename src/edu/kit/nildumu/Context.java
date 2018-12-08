@@ -980,7 +980,7 @@ public class Context {
 		
 		/**
 		 * Every node that a loop condition node transitively data depends on, excluding
-		 * dependencies through comparions.
+		 * dependencies through comparisons.
 		 */
 		Set<SDGNode> calculatePartOfLoopConditionNodes(){
 			Set<SDGNode> nodes = program.getSDG().getNodesOfProcedure(entryNode);
@@ -1003,7 +1003,7 @@ public class Context {
 						// unless they are in a loop
 						SDGNode cur = q.poll();
 						alreadyVisited.add(cur);
-						if (!comps.contains(cur) && isLogicalOpOrPhi(cur)) {
+						if (!comps.contains(cur) && isNotComparison(cur)) {
 							partOfLoopConds.add(cur);
 							program.getDataDependencies(cur)
 								.filter(n -> !alreadyVisited.contains(n))
@@ -1013,6 +1013,15 @@ public class Context {
 				}
 			}
 			return partOfLoopConds;
+		}
+		
+		private boolean isNotComparison(SDGNode node) {
+			SSAInstruction instr = program.getInstruction(node);
+			if (instr == null) {
+				return false;
+			}
+			Operator op = operatorForNodeNotCached(node);
+			return !(op == Operator.EQUALS || op == Operator.UNEQUALS || op == Operator.LESS);
 		}
 		
 		private boolean isLogicalOpOrPhi(SDGNode node) {
