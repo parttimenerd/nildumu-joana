@@ -558,8 +558,12 @@ public class Context {
     	}
     	for (B assumedValue : Arrays.asList(B.ZERO, B.ONE)) {
     		if (condBit.isUnknown() || condBit.val() == assumedValue) {
-    			nodeValueState.modsMap.put(new AffectingConditional(condNode, assumedValue == B.ONE), 
-    					repl(condBit).apply(this, condBit, bl.create(assumedValue)));
+    			AffectingConditional affCond = new AffectingConditional(condNode, assumedValue == B.ONE);
+    			Mods mods = repl(condBit).apply(this, condBit, bl.create(assumedValue));
+    			if (nodeValueState.modsMap.containsKey(affCond)) {
+    				mods = Mods.empty().add(nodeValueState.modsMap.get(affCond)).merge(mods);
+    			}
+    			nodeValueState.modsMap.put(affCond, mods);
     		}
     	}
     }
@@ -602,10 +606,12 @@ public class Context {
         	replMap.remove(n);
             return false;
         }
+        ModsCreator oModsCreator = repl(o);
+        ModsCreator nModsCreator = repl(n);
         repl(o, (c, b, a) -> {
-            //Mods oMods = repl(o).apply(c, b, a);// TODO: causes endless
-            //Mods nMods = repl(n).apply(c, b, a);//       recursion
-            return Mods.empty();//.add(oMods).merge(nMods);
+            Mods oMods = oModsCreator.apply(c, b, a);
+            Mods nMods = nModsCreator.apply(c, b, a);
+            return Mods.empty().add(oMods).merge(nMods);
         });
         replMap.remove(n);
         return true;

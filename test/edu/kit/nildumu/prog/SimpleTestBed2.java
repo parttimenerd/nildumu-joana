@@ -272,7 +272,7 @@ public class SimpleTestBed2 {
 	
 	//@EntryPoint
 	@Config(intWidth=5)
-	@MethodInvocationHandlersToUse("handler=call_string;maxrec=2")
+	@MethodInvocationHandlersToUse("handler=inlining;maxrec=2")
 	@ShouldLeak(bits="1")
 	public static void basicFibConst() {
 		leak(__f(1));

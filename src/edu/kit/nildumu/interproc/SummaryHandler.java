@@ -33,42 +33,24 @@ import edu.kit.nildumu.util.Util.Box;
  * runs the normal analysis of the method body and uses the prior summary edges if a method is
  * called in the body. The resulting bit graph is then reduced.
  * <p/>
- * It supports coinduction ("mode=coind") and induction ("mode=ind").
+ * It supports induction.
  * <p/>
  * Induction starts with no edges between parameter bits and return bits and iterates till no
  * new connection between a return bit and a parameter bit is added. It only works for programs
  * without recursion.
  * <p/>
- * Coinduction starts with the an over approximation produced by another handler ("bot" property)
- * and iterates at most a configurable number of times ("maxiter" property), by default this
- * number is {@value Integer#MAX_VALUE}.
  * <p/>
  * The default reduction policy is to connect all return bits with all parameter bits that they
- * depend upon ("reduction=all").
- * And improved version ("reduction=mincut") includes the minimal cut bits of the bit graph from
+ * depend upon.
+ * And improved version (mincut reduction) includes the minimal cut bits of the bit graph from
  * the return to the parameter bits, assuming that the return bits have infinite weights.
  */
 public class SummaryHandler extends MethodInvocationHandler {
-
-    public static enum Mode {
-        COINDUCTION,
-        /**
-         * The induction mode doesn't work with recursion and has spurious errors
-         */
-        INDUCTION,
-        AUTO
-    }
 
     public static enum Reduction {
         BASIC,
         MINCUT;
     }
-
-    final int maxIterations;
-
-    final SummaryHandler.Mode mode;
-
-    final MethodInvocationHandler botHandler;
 
     final Path dotFolder;
 
@@ -82,44 +64,25 @@ public class SummaryHandler extends MethodInvocationHandler {
     
     Map<Method, CallSite> callSites;
 
-    public SummaryHandler(int maxIterations, SummaryHandler.Mode mode, MethodInvocationHandler botHandler, Path dotFolder, SummaryHandler.Reduction reductionMode, int callStringMaxRec) {
-        this.maxIterations = maxIterations;
-        this.mode = mode;
+    public SummaryHandler(Path dotFolder, SummaryHandler.Reduction reductionMode, int callStringMaxRec) {
         this.reductionMode = reductionMode;
         this.callStringMaxRec = callStringMaxRec;
-        assert !(mode == Mode.INDUCTION || mode == Mode.AUTO) || (maxIterations == Integer.MAX_VALUE);
-        this.botHandler = botHandler;
         this.dotFolder = dotFolder;
     }
 
     @Override
     public void setup(Program program) {
-        SummaryHandler.Mode _mode = mode;
         callGraph = program.getMethodDominators();
         callSites = new DefaultMap<Method, CallSite>((map, m) -> {
         	return new CallSite(m);
         });
-        if (_mode == Mode.AUTO){
-            _mode = Mode.INDUCTION;
-        }
-        
-       /* if (callGraph.containsRecursion()){
-            if (_mode == Mode.AUTO){
-                _mode = Mode.COINDUCTION;
-            }
-            if (_mode == Mode.INDUCTION){
-                System.err.println("Induction cannot be used for programs with reduction");
-              //  throw new MethodInvocationHandlerInitializationError("Induction cannot be used for programs with reduction");
-            }
-        }*/
         DotRegistry.get().storeFiles();
-        SummaryHandler.Mode usedMode = _mode;
         Context c = program.context;
         Map<Node<Method>, BitGraph> state = new HashMap<>();
         MethodInvocationHandler handler = createHandler(m -> state.get(callGraph.getNodeForElement(m)));
         Box<Integer> iteration = new Box<>(0);
         callGraph.<BitGraph>worklist((node, s) -> {
-            if (node.isEntryNode() || iteration.val > maxIterations){
+            if (node.isEntryNode()){
                 return s.get(node);
             }
             iteration.val += 1;
@@ -138,7 +101,7 @@ public class SummaryHandler extends MethodInvocationHandler {
                     () -> () -> reducedGraph.createDotGraph("", false));
             return reducedGraph;
         }, node ->  {
-            BitGraph graph = bot(program, node.getElem(), usedMode);
+            BitGraph graph = bot(program, node.getElem());
             String name = String.format("%3d %s", iteration.val, node.getElem().toBCString());
             if (dotFolder != null){
                 graph.writeDotGraph(dotFolder, name, false);
@@ -152,12 +115,8 @@ public class SummaryHandler extends MethodInvocationHandler {
         methodGraphs = state.entrySet().stream().collect(Collectors.toMap(e -> e.getKey().getElem(), Map.Entry::getValue));
     }
 
-    BitGraph bot(Program program, Method method, SummaryHandler.Mode usedMode){
+    BitGraph bot(Program program, Method method){
         List<Value> parameters = generateParameters(program, method);
-        if (usedMode == Mode.COINDUCTION) {
-            Value returnValue = botHandler.analyze(program.context, callSites.get(method), parameters);
-            return new BitGraph(program.context, parameters, returnValue);
-        }
         return new BitGraph(program.context, parameters, program.createUnknownValue(method.method.getSignature().getReturnType()));
     }
 
@@ -182,7 +141,7 @@ public class SummaryHandler extends MethodInvocationHandler {
     }
 
     MethodInvocationHandler createHandler(Function<Method, BitGraph> curVersion){
-        MethodInvocationHandler handler = new MethodInvocationHandler() {
+    	MethodInvocationHandler handler = new MethodInvocationHandler() {
             @Override
             public Value analyze(Context c, CallSite callSite, List<Value> arguments) {
                 return curVersion.apply(callSite.method).applyToArgs(c, arguments);
@@ -194,7 +153,7 @@ public class SummaryHandler extends MethodInvocationHandler {
             }
         };
         if (callStringMaxRec > 0){
-            return new CallStringHandler(callStringMaxRec, handler);
+            return new InliningHandler(callStringMaxRec, handler);
         }
         return handler;
     }

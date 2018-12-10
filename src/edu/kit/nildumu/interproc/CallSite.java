@@ -3,6 +3,9 @@ package edu.kit.nildumu.interproc;
 import edu.kit.joana.ifc.sdg.graph.SDGNode;
 import edu.kit.nildumu.Method;
 
+/**
+ * Site where a function is called. The node values are stored per call-site.
+ */
 public class CallSite {
 	
     public static class NodeBasedCallSite extends CallSite {

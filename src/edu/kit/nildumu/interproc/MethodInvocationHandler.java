@@ -38,7 +38,7 @@ public abstract class MethodInvocationHandler {
     private static List<String> examplePropLines = new ArrayList<>();
 
     /**
-     * Regsiter a new class of handlers
+     * Register a new class of handlers
      */
     private static void register(String name, Consumer<HandlerConfigSchema> propSchemeCreator, Function<Properties, MethodInvocationHandler> creator){
         HandlerConfigSchema scheme = new HandlerConfigSchema();
@@ -94,26 +94,19 @@ public abstract class MethodInvocationHandler {
             }
         });
         examplePropLines.add("handler=all");
-        register("call_string", s -> s.add("maxrec", "2").add("bot", "all"), ps -> {
-            return new CallStringHandler(Integer.parseInt(ps.getProperty("maxrec")), parse(ps.getProperty("bot")));
+        register("inlining", s -> s.add("maxrec", "2").add("bot", "all"), ps -> {
+            return new InliningHandler(Integer.parseInt(ps.getProperty("maxrec")), parse(ps.getProperty("bot")));
         });
-        examplePropLines.add("handler=call_string;maxrec=2;bot=all");
-        examplePropLines.add("handler=call_string;maxrec=2;bot={handler=summary;bot=call_string}");
+        examplePropLines.add("handler=inlining;maxrec=2;bot=all");
+        examplePropLines.add("handler=inlining;maxrec=2;bot=summary");
         Consumer<HandlerConfigSchema> propSchemeCreator = s ->
-                s.add("maxiter", "1")
-                        .add("bot", "all")
-                        .add("mode", "auto")
-                        .add("reduction", "mincut")
-                        .add("csmaxrec", "0")
-                        .add("dot", "");
+                s.add("reduction", "mincut").add("dot", "").add("csmaxrec", "2");
         register("summary", propSchemeCreator, ps -> {
             Path dotFolder = ps.getProperty("dot").equals("") ? null : Paths.get(ps.getProperty("dot"));
-            return new SummaryHandler(ps.getProperty("mode").equals("coind") ? Integer.parseInt(ps.getProperty("maxiter")) : Integer.MAX_VALUE,
-                    ps.getProperty("mode").equals("ind") ? SummaryHandler.Mode.INDUCTION : (ps.getProperty("mode").equals("auto") ? SummaryHandler.Mode.AUTO : SummaryHandler.Mode.COINDUCTION),
-                    parse(ps.getProperty("bot")), dotFolder, SummaryHandler.Reduction.valueOf(ps.getProperty("reduction").toUpperCase()), Integer.parseInt(ps.getProperty("csmaxrec")));
+            return new SummaryHandler(dotFolder, SummaryHandler.Reduction.valueOf(ps.getProperty("reduction").toUpperCase()), Integer.parseInt(ps.getProperty("csmaxrec")));
         });
-        examplePropLines.add("handler=summary;bot=all;reduction=basic");
-        examplePropLines.add("handler=summary;bot=all;reduction=mincut");
+        examplePropLines.add("handler=summary;reduction=basic");
+        examplePropLines.add("handler=summary;reduction=mincut");
         //examplePropLines.add("handler=summary_mc;mode=ind");
     }
 
@@ -122,12 +115,18 @@ public abstract class MethodInvocationHandler {
     }
 
     public static String getDefaultPropString(){
-        return "handler=call_string;maxrec=2;bot=all";
+        return "handler=inlining;maxrec=2;bot=all";
     }
 
+    /**
+     * Setup the handler for a given program
+     */
     public void setup(Program program){
     }
 
+    /**
+     * Analyse a call-site and return the return the return value
+     */
     public abstract Lattices.Value analyze(Context c, CallSite callSite, List<Value> arguments);
 
     public abstract String getName();

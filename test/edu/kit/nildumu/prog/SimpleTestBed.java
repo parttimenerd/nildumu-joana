@@ -199,7 +199,7 @@ public class SimpleTestBed {
 	
 	@EntryPoint
 	@Config(intWidth=2)
-	@MethodInvocationHandlersToUse({"call_string"})
+	@MethodInvocationHandlersToUse({"inlining"})
 	@ShouldLeak(exactly=1)
 	public static void basicDepsOnFunction(@Source @Value("0buu") int h) {
 		leak(_2_bla(h));
@@ -329,7 +329,7 @@ public class SimpleTestBed {
 	
 	@EntryPoint
 	@Config(intWidth=2)
-	@MethodInvocationHandlersToUse({"call_string"})
+	@MethodInvocationHandlersToUse({"inlining"})
 	@ShouldLeak(exactly=0,bits="1")
 	public static void unreachableLeak(@Source @Value("0b0u") int h) {
 		int r = 0;
