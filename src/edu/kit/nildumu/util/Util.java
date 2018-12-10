@@ -17,6 +17,9 @@ import edu.kit.nildumu.Lattices.Bit;
 
 public class Util {
 
+	/**
+	 * Returns a list of two pairs: [(x,y), (y, x)]
+	 */
     public static <T> List<Pair<T, T>> permutatePair(T x, T y){
         return Arrays.asList(new Pair<>(x, y), new Pair<>(y, x));
     }
@@ -26,16 +29,11 @@ public class Util {
         return new HashSet<>(Arrays.asList(ts));
     }
 
+    /**
+     * Creates a pair
+     */
     public static <S, T> Pair<S, T> p(S s, T t){
         return new Pair<>(s,t);
-    }
-
-    static Stream<Lattices.Bit> stream(Bit x, Bit y) {
-        return Stream.of(x, y);
-    }
-
-    static Stream<Bit> stream(List<Pair<Bit, Bit>> bits) {
-        return bits.stream().flatMap(p -> Stream.of(p.first, p.second));
     }
 
     public static IntStream stream(ValueRange range) {
@@ -82,20 +80,15 @@ public class Util {
         return vals.stream().map(b -> b ? "1" : "0").collect(Collectors.joining(""));
     }
 
-    public static String iter(String str, int number){
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < number; i++) {
-            builder.append(str);
-        }
-        return builder.toString();
-    }
-
     public static double log2(double val){
         return Math.log(val) / Math.log(2);
     }
     
-    public static <T> T get(Iterable<T> set){
-    	return set.iterator().next();
+    /**
+     * Returns the first element of an iterable
+     */
+    public static <T> T get(Iterable<T> iter){
+    	return iter.iterator().next();
     }
     
     public static <T> List<T> toList(Iterator<T> iterator){

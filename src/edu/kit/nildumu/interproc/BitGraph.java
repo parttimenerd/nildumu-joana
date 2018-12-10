@@ -33,6 +33,9 @@ import guru.nidi.graphviz.engine.Format;
 import guru.nidi.graphviz.engine.Graphviz;
 import guru.nidi.graphviz.model.Graph;
 
+/**
+ * Graph that represents a function
+ */
 class BitGraph {
 
     final Context context;
@@ -85,6 +88,9 @@ class BitGraph {
         return clone;
     }
 
+    /**
+     * Applies the function graph to concrete arguments
+     */
     public Value applyToArgs(Context context, List<Value> arguments){
         List<Value> extendedArguments = arguments;
         Map<Bit, Bit> newBits = new HashMap<>();
@@ -124,7 +130,7 @@ class BitGraph {
     }
 
     /**
-     * Returns the bit of the passed set, that are reachable from the bit
+     * Returns the bit of the passed set that are reachable from the bit
      */
     public Set<Bit> calcReachableBits(Bit bit, Set<Bit> bits){
         Set<Bit> reachableBits = new HashSet<>();
@@ -136,6 +142,9 @@ class BitGraph {
         return reachableBits;
     }
 
+    /**
+     * Returns the parameter bits that are reachable from the bit
+     */
     public Set<Bit> calcReachableParamBits(Bit bit){
         return calcReachableBits(bit, parameterBits);
     }
@@ -170,6 +179,10 @@ class BitGraph {
         }
     }
 
+    /**
+     * A graph is equal to another graph if the number of parameter bits that are reachable 
+     * for each return value bit are the same
+     */
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof BitGraph){
